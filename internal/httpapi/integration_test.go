@@ -90,7 +90,7 @@ func newEnv(t *testing.T) *env {
 	}
 	t.Cleanup(st.Close)
 	if _, err := st.Pool.Exec(ctx,
-		`TRUNCATE users, sessions, llm_apis, providers, request_logs RESTART IDENTITY CASCADE`); err != nil {
+		`TRUNCATE users, sessions, llm_apis, providers, request_logs, settings RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("清库失败: %v", err)
 	}
 

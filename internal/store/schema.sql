@@ -123,3 +123,10 @@ CREATE INDEX IF NOT EXISTS idx_clients_api ON api_clients (llm_api_id, id);
 ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS client_id BIGINT;
 ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS client_name TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_logs_client_created ON request_logs (client_id, created_at DESC);
+
+-- ---------------------------------------------------------------- 系统设置
+CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT        NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

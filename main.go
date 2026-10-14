@@ -17,6 +17,7 @@ import (
 	"flash-llm-router/internal/config"
 	"flash-llm-router/internal/gateway"
 	"flash-llm-router/internal/httpapi"
+	"flash-llm-router/internal/janitor"
 	"flash-llm-router/internal/store"
 )
 
@@ -60,6 +61,9 @@ func main() {
 		SessionTTL: cfg.SessionTTL,
 		StaticFS:   staticFS,
 	}
+
+	// 后台日志清理：按保留策略（默认 30 天）滚动删除过期日志
+	go janitor.Run(context.Background(), st, logger, time.Hour)
 
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,

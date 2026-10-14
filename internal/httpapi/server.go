@@ -76,6 +76,8 @@ func (s *Server) Handler() http.Handler {
 
 	// ---- 统计与日志
 	mux.HandleFunc("GET /api/overview", s.requireAuth(s.handleOverview))
+	mux.HandleFunc("GET /api/settings", s.requireAuth(s.handleGetSettings))
+	mux.HandleFunc("PUT /api/settings", s.requireWriter(s.handleUpdateSettings))
 	mux.HandleFunc("GET /api/stats/timeseries", s.requireAuth(s.handleTimeseries))
 	mux.HandleFunc("GET /api/stats/providers", s.requireAuth(s.handleProviderStats))
 	mux.HandleFunc("GET /api/logs", s.requireAuth(s.handleLogs))

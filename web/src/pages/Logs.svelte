@@ -1,6 +1,7 @@
 <script>
-  import { get } from '../lib/api.js'
-  import { toastErr } from '../lib/toast.svelte.js'
+  import { get, put } from '../lib/api.js'
+  import { canWrite } from '../lib/session.svelte.js'
+  import { toastOk, toastErr } from '../lib/toast.svelte.js'
   import { formatNumber, formatCost, formatLatency, formatDateTime, rangePreset } from '../lib/format.js'
 
   let apis = $state([])
@@ -42,6 +43,22 @@
     }
   }
   load()
+
+  // 日志保留设置
+  let retentionDays = $state(30)
+  get('/api/settings')
+    .then((d) => (retentionDays = d.log_retention_days))
+    .catch((e) => toastErr(e.message))
+
+  async function saveRetention() {
+    try {
+      const d = await put('/api/settings', { log_retention_days: Number(retentionDays) })
+      retentionDays = d.log_retention_days
+      toastOk(`日志保留已设为 ${retentionDays === 0 ? '永久保留' : retentionDays + ' 天'}（每小时自动清理）`)
+    } catch (e) {
+      toastErr(e.message)
+    }
+  }
 
   const totalPages = $derived(Math.max(1, Math.ceil(total / pageSize)))
 
@@ -98,7 +115,26 @@
       </select>
     </div>
     <button class="btn btn-secondary" onclick={search}>查询</button>
-    <div class="ml-auto text-xs text-muted/80">共 {formatNumber(total)} 条</div>
+    <div class="ml-auto flex items-center gap-3">
+      <div class="flex items-center gap-2" title="超过保留期的日志每小时自动滚动删除">
+        <span class="text-xs text-muted">日志保留</span>
+        {#if canWrite()}
+          <select class="input !w-28 !py-1 text-xs" bind:value={retentionDays} onchange={saveRetention}>
+            <option value={7}>7 天</option>
+            <option value={14}>14 天</option>
+            <option value={30}>30 天</option>
+            <option value={60}>60 天</option>
+            <option value={90}>90 天</option>
+            <option value={180}>180 天</option>
+            <option value={365}>365 天</option>
+            <option value={0}>永久保留</option>
+          </select>
+        {:else}
+          <span class="chip !py-0.5 !text-[11px]">{retentionDays === 0 ? '永久保留' : retentionDays + ' 天'}</span>
+        {/if}
+      </div>
+      <span class="text-xs text-muted/80">共 {formatNumber(total)} 条</span>
+    </div>
   </div>
 
   <!-- 日志表 -->
