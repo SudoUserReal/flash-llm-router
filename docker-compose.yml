@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-flash_llm_router}
+      POSTGRES_USER: ${POSTGRES_USER:-flr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flr_dev_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-flr} -d $${POSTGRES_DB:-flash_llm_router}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    # 如需从宿主机或其他机器直连数据库，打开下面的端口映射：
+    # ports:
+    #   - "5432:5432"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # DSN 指向 compose 内的 db 服务；也可改为外部数据库地址
+      DATABASE_URL: postgres://${POSTGRES_USER:-flr}:${POSTGRES_PASSWORD:-flr_dev_password}@db:5432/${POSTGRES_DB:-flash_llm_router}
+      ADDR: ":8080"
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      # 留空则首次启动时生成随机密码并打印到容器日志
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+      STATS_TZ: ${STATS_TZ:-Asia/Shanghai}
+      TZ: ${STATS_TZ:-Asia/Shanghai}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/auth/captcha"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+volumes:
+  pgdata:

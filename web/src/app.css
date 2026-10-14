@@ -1,0 +1,125 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+
+/*
+ * 设计系统：ClickUp
+ * 来源：https://designmd-store.com/packs/clickup
+ * 规则：黑色主 CTA、紫色 accent、白卡 + 细灰边、大圆角、Plus Jakarta Sans 标题 + Inter 正文。
+ */
+@theme {
+  --font-sans:
+    'Inter', 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-display:
+    'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+  --font-mono: 'Sometype Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ---- ClickUp tokens ---- */
+  --color-primary: #202020; /* 主 CTA / 文字锚点（黑） */
+  --color-deep-panel: #1e1e1e; /* primary hover */
+  --color-ink: #090c1d;
+  --color-body: #202020;
+  --color-muted: #646464;
+  --color-canvas: #ffffff;
+  --color-surface: #f8f9fa;
+  --color-surface-alt: #f1f1f9; /* 浅薰衣草灰：次级按钮底 */
+  --color-line: #e9e9ef; /* 常规细分割线 */
+  --color-edge: #cfcfcf; /* 强边框 */
+  --color-accent: #7612fa; /* 紫色 accent */
+  --color-accent-hover: #6647f0;
+  --color-accent-pressed: #4a2fff;
+  --color-link: #0091ff;
+  --color-success: #30a46c;
+  --color-warning: #ffc53d;
+  --color-error: #e5484d;
+  --color-logo-purple: #6647f0;
+  --color-logo-blue: #0091ff;
+  --color-logo-pink: #ff02f0;
+  --color-logo-orange: #f76808;
+  --color-pale-purple: #efedfd;
+  --color-pale-pink: #fff1fe;
+  --color-pale-blue: #e9e9f6;
+  --color-pale-orange: #ffece5;
+}
+
+html {
+  font-size: 15px;
+}
+
+body {
+  @apply bg-surface text-body antialiased;
+  font-family: var(--font-sans);
+  letter-spacing: -0.011em;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-[14px] px-4 py-2 text-sm font-extrabold whitespace-nowrap transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50;
+    letter-spacing: -0.01em;
+  }
+  /* 主 CTA：采用 ink-black，而不是彩色按钮（ClickUp 规则 #1） */
+  .btn-primary {
+    @apply bg-primary text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)] hover:bg-deep-panel active:translate-y-px;
+  }
+  .btn-secondary {
+    @apply bg-surface-alt text-accent hover:bg-pale-purple;
+  }
+  .btn-danger {
+    @apply bg-canvas text-error shadow-[inset_0_0_0_1px_#f0c9cb] hover:bg-[#fff3f3];
+  }
+  .btn-ghost {
+    @apply text-muted hover:bg-surface hover:text-body;
+  }
+  .input {
+    @apply w-full rounded-[12px] border border-edge/70 bg-canvas px-3.5 py-2 text-sm text-body outline-none placeholder:text-muted/60 focus:border-accent focus:ring-2 focus:ring-accent/20;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-muted;
+  }
+  .card {
+    @apply rounded-2xl bg-canvas ring-1 ring-line;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+  .table-th {
+    @apply px-3 py-2 text-left text-[11px] font-semibold tracking-wide text-muted uppercase;
+  }
+  .table-td {
+    @apply px-3 py-2 text-sm;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold;
+  }
+  .badge-success {
+    @apply bg-[#e9f7f0] text-[#1e7b4c];
+  }
+  .badge-error {
+    @apply bg-[#fdecec] text-[#c4343a];
+  }
+  .badge-warning {
+    @apply bg-[#fff5d9] text-[#8a5b00];
+  }
+  .badge-info {
+    @apply bg-[#e8f4fd] text-[#0b6bcb];
+  }
+  .badge-accent {
+    @apply bg-pale-purple text-accent;
+  }
+  .badge-neutral {
+    @apply bg-surface text-muted;
+  }
+  .badge-dark {
+    @apply bg-primary text-white;
+  }
+  /* app-chip：mono 标签式信息片（ClickUp 产品宽度叙事） */
+  .chip {
+    @apply inline-flex items-center rounded-full bg-surface px-3 py-1 font-mono text-xs font-medium text-body ring-1 ring-line;
+  }
+}

@@ -1,0 +1,17 @@
+# 二进制
+/flr
+/flr-*
+/tmp/
+
+# 环境变量
+.env
+
+# 前端
+web/node_modules/
+web/dist/*
+!web/dist/index.html
+web/.vite/
+
+# 杂项
+.DS_Store
+*.log
