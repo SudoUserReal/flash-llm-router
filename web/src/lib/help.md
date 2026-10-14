@@ -288,6 +288,53 @@ console.log(resp.choices[0].message.content);
 
 ---
 
+## 管理 API（供 Agent / 自动化）
+
+除对外代理接口外，网关自带一套管理 API（`/api/*`），供 AI Agent 与自动化脚本完成配置、查询与运维，无需操作界面。
+
+### 认证流程
+
+```bash
+# 1. 获取验证码（返回 captcha_id 与验证码图片 base64）
+curl {{BASE_URL}}/api/auth/captcha
+
+# 2. 登录（验证码字符取自图片）
+curl -X POST {{BASE_URL}}/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"…","captcha_id":"<id>","captcha_code":"<code>"}'
+# → {"token":"sess-…","user":{…}}
+
+# 3. 后续请求携带会话 token
+curl {{BASE_URL}}/api/llm-apis -H "Authorization: Bearer <token>"
+```
+
+### 常用端点
+
+| 方法 | 端点 | 用途 |
+|---|---|---|
+| GET / POST | `/api/llm-apis` | 服务列表 / 创建对外服务（可自定义 Key） |
+| GET / PUT / DELETE | `/api/llm-apis/{id}` | 服务详情 / 更新 / 删除 |
+| POST | `/api/llm-apis/{id}/rotate-key` | 重置服务主 Key |
+| POST | `/api/llm-apis/{id}/providers` | 添加上游 Provider（优先级/熔断/超时/价格） |
+| PUT / DELETE | `/api/providers/{id}` | 更新 / 删除 Provider |
+| POST | `/api/llm-apis/{id}/providers/reorder` | 批量重排优先级 `{"ids":[3,1,2]}` |
+| POST | `/api/providers/{id}/reset-health` | 清除熔断冷却 |
+| POST | `/api/providers/{id}/balance` | DeepSeek 余额查询（仅 kind=deepseek） |
+| POST | `/api/providers/{id}/autofill-price` | 官方价目一键填充 `{"tier":"peak\|offpeak"}` |
+| POST | `/api/providers/{id}/ping` | 连通性测试（请求上游 /v1/models） |
+| GET / POST | `/api/llm-apis/{id}/clients` | 调用方列表（含本周期用量）/ 创建（钱包+限额） |
+| PUT / DELETE | `/api/clients/{id}` | 更新限额与状态 / 删除 |
+| POST | `/api/clients/{id}/recharge` | 充值（正数）或扣减（负数）`{"amount":10}` |
+| POST | `/api/clients/{id}/rotate-key` | 重置调用方 Key |
+| GET | `/api/logs` | 请求日志（`llm_api_id` / `provider_id` / `client_id` / `success` / `from` / `to` / `page` / `page_size`） |
+| GET | `/api/stats/timeseries` | 用量趋势（`granularity=hour\|day`，含 `llm_api_id` 过滤） |
+| GET | `/api/stats/providers` | 区间内各 Provider 费用 / token / 延迟明细 |
+| GET / PUT | `/api/settings` | 系统设置（如 `log_retention_days` 日志保留天数） |
+| GET | `/api/overview` | 总览（今日 / 近 7 日 / 各服务摘要） |
+| GET | `/api/users` / POST | 用户管理（仅 admin，含角色 admin/operator/viewer） |
+
+> 管理 API 的错误格式与代理接口一致：`{"error":{"code":"...","message":"..."}}`，便于 Agent 自动判断与重试。
+
 ## 注意事项
 
 - **自动切换**：一次请求内按 Provider 优先级依次尝试，直到成功或全部失败；流式响应一旦开始输出便无法切换

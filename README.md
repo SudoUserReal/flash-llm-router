@@ -6,10 +6,12 @@
 
 <p align="center">
   自托管 LLM API 中转与计费网关：一个兼容 OpenAI 的入口，按优先级路由到多个上游 Provider<br>
-  故障自动切换 · 熔断保护 · token 级精确计费 · 调用方钱包限额 · 全量 PostgreSQL 持久化
+  故障自动切换 · 熔断保护 · token 级精确计费 · 调用方钱包限额 · 全量 PostgreSQL 持久化<br>
+  🤖 <b>AI 友好</b>：管理平面全量 REST API 化，AI Agent 可直接完成配置、查询与运维，无需人工操作界面
 </p>
 
 <p align="center">
+  <img alt="AI Agent friendly" src="https://img.shields.io/badge/AI%20Agent-friendly-7612FA?style=flat-square">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go&logoColor=white">
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-FF3E00?style=flat-square&logo=svelte&logoColor=white">
   <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&logo=postgresql&logoColor=white">
@@ -30,10 +32,11 @@
 
 <table align="center">
   <tr>
-    <td align="center" width="25%">🔀<br><b>多通道调度</b><br><sub>优先级路由 · 失败切换 · 熔断冷却 · 请求体过滤</sub></td>
-    <td align="center" width="25%">💰<br><b>三段计费</b><br><sub>未命中输入 / 缓存命中 / 输出独立计费，CNY 记账</sub></td>
-    <td align="center" width="25%">👛<br><b>钱包与限额</b><br><sub>调用方独立 Key · 余额耗尽拒绝 · 日/周/月限额</sub></td>
-    <td align="center" width="25%">📊<br><b>统计与日志</b><br><sub>小时/天趋势 · Provider 明细 · 故障切换尝试链</sub></td>
+    <td align="center" width="20%">🤖<br><b>AI 友好</b><br><sub>管理全 API 化 · Agent 零界面直连 · 文档可一键导出</sub></td>
+    <td align="center" width="20%">🔀<br><b>多通道调度</b><br><sub>优先级路由 · 失败切换 · 熔断冷却 · 请求体过滤</sub></td>
+    <td align="center" width="20%">💰<br><b>三段计费</b><br><sub>未命中输入 / 缓存命中 / 输出独立计费</sub></td>
+    <td align="center" width="20%">👛<br><b>钱包与限额</b><br><sub>调用方独立 Key · 余额耗尽拒绝 · 周期限额</sub></td>
+    <td align="center" width="20%">📊<br><b>统计与日志</b><br><sub>小时/天趋势 · Provider 明细 · 切换尝试链</sub></td>
   </tr>
 </table>
 
@@ -184,6 +187,31 @@ GET  /v1/models/{model}
 - 「统计分析」：选择 LLM API、时间范围（含自定义）、粒度（小时/天），查看请求数/费用/tokens 趋势图，
   以及**区间内每个 Provider 的花费、token、成功率、平均延迟明细**
 - 「请求日志」：按服务、结果、模型、时间过滤；展开可查看该次请求的 Provider 尝试链（哪个通道失败、为何失败、最终落在哪）
+
+## 面向 AI Agent
+
+管理平面与代理平面全部 **REST API 化**——Agent（Claude Code / OpenCode / Codex / 自研脚本）不需要操作界面，就能完成全部配置与运维：
+
+- **管理 API**（`/api/*`）：`GET /api/auth/captcha` + `POST /api/auth/login` 获取会话 token（可给 Agent 单独创建一个 admin 或 operator 用户），之后携带 `Authorization: Bearer <token>`
+- **代理 API**（`/v1/*`）：携带 LLM API Key（`Authorization: Bearer sk-flr-...`）
+- 服务内置「帮助文档」页，右上角可**一键复制整篇接口文档（Markdown）**，直接喂给 Agent 作为上下文
+
+常用管理端点速查：
+
+| 方法 | 端点 | 用途 |
+|---|---|---|
+| POST | `/api/llm-apis` | 创建对外服务（可自定义 API Key） |
+| POST | `/api/llm-apis/{id}/providers` | 添加上游 Provider（优先级 / 熔断 / 超时 / 价格） |
+| POST | `/api/llm-apis/{id}/providers/reorder` | 批量重排优先级（拖拽语义） |
+| POST | `/api/providers/{id}/balance` · `autofill-price` | DeepSeek 余额查询 / 官方价目一键填充 |
+| POST | `/api/llm-apis/{id}/clients` | 创建调用方（钱包 + 日/周/月限额） |
+| POST | `/api/clients/{id}/recharge` · `rotate-key` | 充值 / 重置 Key |
+| GET | `/api/logs` | 请求日志（含故障切换尝试链，支持调用方过滤） |
+| GET | `/api/stats/timeseries` · `/api/stats/providers` | 用量与费用统计（小时/天 · Provider 明细） |
+| GET/PUT | `/api/settings` | 系统设置（如日志保留天数） |
+| GET | `/api/overview` | 全局总览（今日 / 近 7 日 / 各服务） |
+
+> 所有错误均为结构化 JSON（`{"error": {"code": "...", "message": "..."}}`），便于 Agent 判断与重试。
 
 ## 行为语义（设计说明）
 
