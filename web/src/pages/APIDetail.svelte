@@ -819,7 +819,7 @@ curl {location.origin}/v1/chat/completions \
 
     <!-- 价格 -->
     <fieldset class="rounded-xl border border-line p-4">
-      <legend class="px-1 text-xs font-medium text-muted">价格（CNY / 百万 tokens，用于计费）</legend>
+      <legend class="px-1 text-xs font-medium text-muted">价格（CNY / 百万 tokens；缓存命中价留空时按输入价计费）</legend>
       <div class="grid grid-cols-3 gap-4">
         <div>
           <label class="label" for="pf-pin">输入（缓存未命中）</label>
@@ -841,7 +841,7 @@ curl {location.origin}/v1/chat/completions \
           <button class="btn btn-secondary !px-2 !py-0.5 text-xs" onclick={() => priceRows.push({ model: '', input: 0, output: 0, cached: 0 })}>＋ 添加模型价</button>
         </div>
         {#if priceRows.length === 0}
-          <p class="text-[11px] text-muted/80">未配置时使用上方默认单价</p>
+          <p class="text-[11px] text-muted/80">只填写部分字段时，未填字段自动回退上方默认单价</p>
         {/if}
         {#each priceRows as row, i (i)}
           <div class="mt-1.5 grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2">

@@ -204,6 +204,8 @@ curl {{BASE_URL}}/v1/models -H "Authorization: Bearer {{API_KEY}}"
 
 - 计费口径：`费用 = 未命中输入 tokens × 输入单价 + 缓存命中 tokens × 缓存单价 + 输出 tokens × 输出单价`（单价为 **CNY / 百万 tokens**，配置在 Provider 上，支持按模型覆盖）
 - `usage.prompt_tokens_details.cached_tokens` 为缓存命中输入 tokens（DeepSeek 为 `prompt_cache_hit_tokens`），按缓存单价计费
+- **token 来源**：三段 token 全部取自上游响应的 `usage`（非流式读响应体；流式读 SSE 的 usage 事件与 `response.completed`），网关不做任何本地估算
+- **价格回退**：模型覆盖价逐字段回退默认价（只填部分字段不会清零其余字段）；缓存命中价留空（0）时按输入价计费
 - 计费在请求完成时按**当时价格**结算并写入日志，之后修改价格不影响历史账单
 - 流式请求：若客户端未显式设置 `stream_options.include_usage`，网关会自动注入以获取 usage 用于计费，并过滤掉由此产生的 usage 事件（客户端感知不到）；若上游未返回 usage，该次请求不产生费用（日志标记为未计费）
 

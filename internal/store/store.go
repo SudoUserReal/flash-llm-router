@@ -115,16 +115,25 @@ type Provider struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// PriceFor 返回某模型适用的价格：优先模型覆盖，否则回退 Provider 默认价。
+// PriceFor 返回某模型适用的价格：模型覆盖逐字段优先，未配置（0）的字段回退 Provider 默认价。
 func (p *Provider) PriceFor(model string) ModelPrice {
-	if mp, ok := p.ModelPrices[model]; ok {
-		return mp
-	}
-	return ModelPrice{
+	out := ModelPrice{
 		Input:       p.PriceInput,
 		Output:      p.PriceOutput,
 		CachedInput: p.PriceCachedInput,
 	}
+	if mp, ok := p.ModelPrices[model]; ok {
+		if mp.Input != 0 {
+			out.Input = mp.Input
+		}
+		if mp.Output != 0 {
+			out.Output = mp.Output
+		}
+		if mp.CachedInput != 0 {
+			out.CachedInput = mp.CachedInput
+		}
+	}
+	return out
 }
 
 // HasPrice 判断该 Provider 是否配置过任何价格。

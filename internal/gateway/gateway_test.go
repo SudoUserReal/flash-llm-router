@@ -56,6 +56,37 @@ func TestComputeCost(t *testing.T) {
 	if got := ComputeCost(u, store.ModelPrice{}); got != 0 {
 		t.Errorf("zero price should cost 0, got %v", got)
 	}
+
+	// 缓存价未配置（0）时按输入价计，避免漏收
+	noCacheDiscount := store.ModelPrice{Input: 2.0, Output: 8.0}
+	u3 := Usage{PromptTokens: 1000, CachedTokens: 400, CompletionTokens: 500}
+	// 输入 1000 × 2/1M + 输出 500 × 8/1M = 0.002 + 0.004 = 0.006
+	if got := ComputeCost(u3, noCacheDiscount); math.Abs(got-0.006) > 1e-9 {
+		t.Errorf("missing cached price should fall back to input price: got %v, want 0.006", got)
+	}
+}
+
+func TestPriceForPerFieldFallback(t *testing.T) {
+	p := &store.Provider{
+		PriceInput: 2, PriceOutput: 8, PriceCachedInput: 0.04,
+		ModelPrices: map[string]store.ModelPrice{
+			"full":   {Input: 3, Output: 12, CachedInput: 0.06},
+			"input":  {Input: 3},
+			"output": {Output: 20},
+		},
+	}
+	if got := p.PriceFor("unknown"); got != (store.ModelPrice{Input: 2, Output: 8, CachedInput: 0.04}) {
+		t.Fatalf("unknown model should use defaults: %+v", got)
+	}
+	if got := p.PriceFor("full"); got != (store.ModelPrice{Input: 3, Output: 12, CachedInput: 0.06}) {
+		t.Fatalf("full override wrong: %+v", got)
+	}
+	if got := p.PriceFor("input"); got != (store.ModelPrice{Input: 3, Output: 8, CachedInput: 0.04}) {
+		t.Fatalf("partial override must fall back per field: %+v", got)
+	}
+	if got := p.PriceFor("output"); got != (store.ModelPrice{Input: 2, Output: 20, CachedInput: 0.04}) {
+		t.Fatalf("partial override must fall back per field: %+v", got)
+	}
 }
 
 func TestParseUsageFromJSON(t *testing.T) {

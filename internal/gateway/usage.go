@@ -132,14 +132,20 @@ func parseUsageFromPayload(payload []byte, endpoint string, out **Usage) {
 }
 
 // ComputeCost 计算费用（price 单位：CNY / 1M tokens），四舍五入到 1e-6。
+// 三段独立计算：未命中输入、缓存命中输入、输出。
+// 缓存命中价未配置（0）时按输入价计费，避免漏收。
 func ComputeCost(u Usage, price store.ModelPrice) float64 {
 	cached := u.CachedTokens
 	if cached > u.PromptTokens {
 		cached = u.PromptTokens
 	}
 	uncached := u.PromptTokens - cached
+	cachedPrice := price.CachedInput
+	if cachedPrice == 0 {
+		cachedPrice = price.Input // 未配置缓存优惠 = 缓存不省钱，按输入价计
+	}
 	cost := float64(uncached)*price.Input/1e6 +
-		float64(cached)*price.CachedInput/1e6 +
+		float64(cached)*cachedPrice/1e6 +
 		float64(u.CompletionTokens)*price.Output/1e6
 	return math.Round(cost*1e6) / 1e6
 }
