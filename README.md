@@ -211,3 +211,7 @@ PostgreSQL 不可用时集成测试自动跳过。
 - 客户端显式要求 `include_usage` 时，上游把 usage 附在最后一个内容 chunk 上的实现（如部分中转）无法剥离，会原样透传
 - 限额检查与扣费非原子：极端并发下（同一调用方同时大量在途请求）可能短暂超出限额或余额，扣费阶段用条件更新兜底不允许透支
 - 日志默认不清理，长期运行可按需在 PostgreSQL 中清理 `request_logs` 表
+
+## License
+
+[MIT](LICENSE) © 2026 SudoUserReal
