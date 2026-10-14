@@ -1,8 +1,43 @@
-# Flash-LLM-Router
+<p align="center">
+  <img src="web/public/favicon.svg" width="84" height="84" alt="flash-llm-router">
+</p>
 
-LLM API 中转与计费网关。对外暴露 OpenAI 兼容接口（Chat Completions / Completions / Responses / Models），
-对内把一次请求分发到多个上游 Provider，按优先级自动降级、熔断保护，并按 token 用量精确计费。
-前端管理界面使用 **Svelte 5 + TailwindCSS v4**（无 SvelteKit），后端 **Go**，数据（配置 + 日志）全部存 **PostgreSQL**。
+<h1 align="center">flash-llm-router</h1>
+
+<p align="center">
+  自托管 LLM API 中转与计费网关：一个兼容 OpenAI 的入口，按优先级路由到多个上游 Provider<br>
+  故障自动切换 · 熔断保护 · token 级精确计费 · 调用方钱包限额 · 全量 PostgreSQL 持久化
+</p>
+
+<p align="center">
+  <img alt="Go" src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go&logoColor=white">
+  <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-FF3E00?style=flat-square&logo=svelte&logoColor=white">
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&logo=postgresql&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white">
+  <img alt="OpenAI Compatible" src="https://img.shields.io/badge/API-OpenAI--compatible-202020?style=flat-square">
+  <img alt="License" src="https://img.shields.io/badge/License-MIT-30A46C?style=flat-square">
+</p>
+
+<p align="center">
+  <a href="#快速开始"><b>快速开始</b></a> &nbsp;·&nbsp;
+  <a href="#功能总览">功能总览</a> &nbsp;·&nbsp;
+  <a href="#使用指南">使用指南</a> &nbsp;·&nbsp;
+  <a href="#行为语义设计说明">行为语义</a> &nbsp;·&nbsp;
+  <a href="#开发与测试">开发与测试</a>
+</p>
+
+<br>
+
+<table align="center">
+  <tr>
+    <td align="center" width="25%">🔀<br><b>多通道调度</b><br><sub>优先级路由 · 失败切换 · 熔断冷却 · 请求体过滤</sub></td>
+    <td align="center" width="25%">💰<br><b>三段计费</b><br><sub>未命中输入 / 缓存命中 / 输出独立计费，CNY 记账</sub></td>
+    <td align="center" width="25%">👛<br><b>钱包与限额</b><br><sub>调用方独立 Key · 余额耗尽拒绝 · 日/周/月限额</sub></td>
+    <td align="center" width="25%">📊<br><b>统计与日志</b><br><sub>小时/天趋势 · Provider 明细 · 故障切换尝试链</sub></td>
+  </tr>
+</table>
+
+<br>
 
 <p align="center">
   <img src="docs/screenshots/dashboard.png" alt="总览" width="100%">
