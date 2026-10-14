@@ -230,11 +230,7 @@ func (g *Gateway) completeSuccess(
 			endpoint:    endpoint,
 			filterUsage: injectedUsage, // 我们注入的 usage 事件按客户端原语义过滤
 		}
-		var relayErr error
-		usage, relayErr = relayStream(w, resp, opts)
-		if relayErr != nil {
-			relayNote = relayErr.Error()
-		}
+		usage, relayNote = relayStream(w, resp, opts)
 	} else {
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxUpstreamRespBody))
 		if err != nil {

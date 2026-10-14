@@ -198,12 +198,14 @@ func TestDeepSeekPrices(t *testing.T) {
 	}
 }
 
-// 构造上游 SSE 流，验证 relayStream 的过滤与 usage 提取。
+// 构造上游 SSE 流，验证 relayStream 的字节级透传、过滤与 usage 提取。
 func TestRelayStreamFiltering(t *testing.T) {
 	sse := strings.Join([]string{
 		`data: {"id":"1","choices":[{"delta":{"content":"你"}}]}`,
 		``,
 		`data: {"id":"1","choices":[{"delta":{"content":"好"}}]}`,
+		``,
+		`data: {"id":"1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}`,
 		``,
 		`data: {"id":"1","choices":[],"usage":{"prompt_tokens":10,"cached_tokens":0,"completion_tokens":5,"total_tokens":15}}`,
 		``,
@@ -211,7 +213,7 @@ func TestRelayStreamFiltering(t *testing.T) {
 		``,
 	}, "\n")
 
-	run := func(filter bool) (string, *Usage) {
+	run := func(filter bool) (string, *Usage, string) {
 		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = w.Write([]byte(sse))
@@ -223,29 +225,59 @@ func TestRelayStreamFiltering(t *testing.T) {
 			t.Fatal(err)
 		}
 		rec := httptest.NewRecorder()
-		usage, err := relayStream(rec, resp, relayOptions{endpoint: EndpointChat, filterUsage: filter})
-		if err != nil {
-			t.Fatalf("relay error: %v", err)
-		}
-		return rec.Body.String(), usage
+		usage, note := relayStream(rec, resp, relayOptions{endpoint: EndpointChat, filterUsage: filter})
+		return rec.Body.String(), usage, note
 	}
 
-	// 过滤模式：usage 事件被移除，但计费数据仍被解析
-	body, usage := run(true)
-	if strings.Contains(body, "prompt_tokens") {
-		t.Fatalf("usage event should be filtered: %s", body)
+	// 1) 不过滤：输出必须与输入字节级一致（SSE 事件之间的空行分隔必须原样保留）
+	body, _, note := run(false)
+	if body != sse {
+		t.Fatalf("stream must pass through byte-identical\nwant: %q\ngot:  %q", sse, body)
+	}
+	if note != "" {
+		t.Fatalf("complete stream should have empty note, got %q", note)
+	}
+
+	// 2) 过滤：移除纯 usage 事件，其余逐字节保留
+	wantFiltered := strings.Join([]string{
+		`data: {"id":"1","choices":[{"delta":{"content":"你"}}]}`,
+		``,
+		`data: {"id":"1","choices":[{"delta":{"content":"好"}}]}`,
+		``,
+		`data: {"id":"1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	body2, usage, _ := run(true)
+	if body2 != wantFiltered {
+		t.Fatalf("filtered stream mismatch\nwant: %q\ngot:  %q", wantFiltered, body2)
 	}
 	if usage == nil || usage.PromptTokens != 10 || usage.CompletionTokens != 5 {
 		t.Fatalf("usage not parsed: %+v", usage)
 	}
-	if !strings.Contains(body, `data: [DONE]`) {
-		t.Fatal("[DONE] should pass through")
-	}
+}
 
-	// 不过滤模式：usage 事件透传
-	body2, _ := run(false)
-	if !strings.Contains(body2, "prompt_tokens") {
-		t.Fatal("usage event should pass when not filtered")
+// 上游流被截断（缺 [DONE]）时必须给出诊断说明，不再静默成功。
+func TestRelayStreamIncompleteNote(t *testing.T) {
+	sse := strings.Join([]string{
+		`data: {"id":"1","choices":[{"delta":{"content":"你好"},"finish_reason":"stop"}]}`,
+		``,
+	}, "\n") // 没有 [DONE]、没有断开后的任何说明
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(sse))
+	}))
+	defer upstream.Close()
+
+	resp, err := http.Get(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	_, note := relayStream(rec, resp, relayOptions{endpoint: EndpointChat})
+	if !strings.Contains(note, "without [DONE]") {
+		t.Fatalf("expected incomplete-stream note, got %q", note)
 	}
 }
 

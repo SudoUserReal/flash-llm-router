@@ -14,9 +14,19 @@ type relayOptions struct {
 	filterUsage bool // 过滤我们注入 include_usage 所产生的"仅含 usage"事件，保持客户端原语义
 }
 
+// streamProgress 跟踪流的完整性标记（用于诊断日志）。
+type streamProgress struct {
+	sawDone      bool // chat: 收到 [DONE]
+	sawFinish    bool // chat: 收到非空 finish_reason
+	sawCompleted bool // responses: 收到 response.completed
+}
+
 // relayStream 逐事件转发上游 SSE 流式响应，同时解析 usage 用于计费。
-// 返回解析到的 usage 与流中断错误（读上游/写客户端）。
-func relayStream(w http.ResponseWriter, resp *http.Response, opts relayOptions) (*Usage, error) {
+// 返回解析到的 usage 与流诊断说明（错误或"流不完整"提示，正常完成时为空）。
+//
+// 关键：SSE 事件之间必须由空行分隔——空行是事件的一部分，
+// 转发时必须原样保留，否则客户端会把多条 data 行拼成同一个事件解析。
+func relayStream(w http.ResponseWriter, resp *http.Response, opts relayOptions) (*Usage, string) {
 	copyResponseHeaders(w.Header(), resp.Header)
 	if w.Header().Get("Content-Type") == "" {
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -36,11 +46,12 @@ func relayStream(w http.ResponseWriter, resp *http.Response, opts relayOptions) 
 	br := bufio.NewReaderSize(resp.Body, 1<<20)
 
 	var (
-		pending  []byte   // 当前事件的原始字节（含行尾）
+		pending  []byte   // 当前事件的原始字节（含行尾与结尾空行）
 		payloads [][]byte // 当前事件中的 data 行内容
 		usage    *Usage
 		writeErr error
 		readErr  error
+		prog     streamProgress
 	)
 
 	flushEvent := func() {
@@ -62,6 +73,8 @@ func relayStream(w http.ResponseWriter, resp *http.Response, opts relayOptions) 
 		line, err := br.ReadBytes('\n')
 		if len(line) > 0 {
 			if isBlankSSELine(line) {
+				// 空行 = SSE 事件分隔符：并入当前事件后整体转发，保持字节级结构
+				pending = append(pending, line...)
 				flushEvent()
 				if writeErr != nil {
 					break
@@ -71,6 +84,7 @@ func relayStream(w http.ResponseWriter, resp *http.Response, opts relayOptions) 
 				if p := sseDataPayload(line); p != nil {
 					payloads = append(payloads, p)
 					parseUsageFromPayload(p, opts.endpoint, &usage)
+					trackProgress(p, opts.endpoint, &prog)
 				}
 			}
 		}
@@ -86,10 +100,53 @@ func relayStream(w http.ResponseWriter, resp *http.Response, opts relayOptions) 
 	}
 	flush()
 
-	if writeErr != nil {
-		return usage, writeErr
+	switch {
+	case writeErr != nil:
+		return usage, writeErr.Error()
+	case readErr != nil:
+		return usage, readErr.Error()
 	}
-	return usage, readErr
+	if opts.endpoint == EndpointResponses {
+		if !prog.sawCompleted {
+			return usage, "upstream stream ended without response.completed"
+		}
+		return usage, ""
+	}
+	if !prog.sawDone {
+		return usage, "upstream stream ended without [DONE]"
+	}
+	if !prog.sawFinish {
+		return usage, "upstream stream ended without finish_reason"
+	}
+	return usage, ""
+}
+
+func trackProgress(payload []byte, endpoint string, prog *streamProgress) {
+	if bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
+		prog.sawDone = true
+		return
+	}
+	if endpoint == EndpointResponses {
+		var ev struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(payload, &ev) == nil && ev.Type == "response.completed" {
+			prog.sawCompleted = true
+		}
+		return
+	}
+	var chunk struct {
+		Choices []struct {
+			FinishReason *string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(payload, &chunk) == nil {
+		for _, c := range chunk.Choices {
+			if c.FinishReason != nil && *c.FinishReason != "" {
+				prog.sawFinish = true
+			}
+		}
+	}
 }
 
 func isBlankSSELine(line []byte) bool {

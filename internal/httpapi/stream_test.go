@@ -59,6 +59,10 @@ func TestStreamingProxyInjectsUsageAndBills(t *testing.T) {
 	if !strings.Contains(got, "你") || !strings.Contains(got, "好") || !strings.Contains(got, "[DONE]") {
 		t.Fatalf("stream content missing: %q", got)
 	}
+	// SSE 事件必须由空行分隔（曾有网关丢弃分隔空行的 bug）
+	if !strings.Contains(got, "}\n\n") {
+		t.Fatalf("SSE events must be separated by blank lines: %q", got)
+	}
 	if strings.Contains(got, "prompt_tokens") {
 		t.Fatalf("injected usage event should be filtered for client: %q", got)
 	}
