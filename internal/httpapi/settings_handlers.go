@@ -28,6 +28,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request, _ *st
 			"access_key_id":     oss.AccessKeyID,
 			"access_key_secret": oss.AccessKeySecret,
 			"public_base":       oss.PublicBase,
+			"prefix":            oss.Prefix,
 		},
 	})
 }
@@ -43,6 +44,7 @@ type ossReq struct {
 	AccessKeyID     *string `json:"access_key_id"`
 	AccessKeySecret *string `json:"access_key_secret"`
 	PublicBase      *string `json:"public_base"`
+	Prefix          *string `json:"prefix"`
 }
 
 // handleUpdateSettings 更新系统设置（日志保留天数 / OSS 配置；仅更新传入的字段）。
@@ -90,6 +92,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, _ 
 		}
 		if req.OSS.PublicBase != nil {
 			next.PublicBase = strings.TrimSpace(*req.OSS.PublicBase)
+		}
+		if req.OSS.Prefix != nil {
+			next.Prefix = strings.TrimSpace(*req.OSS.Prefix)
 		}
 		if err := s.Store.SetOSSSettings(r.Context(), next); err != nil {
 			errJSON(w, http.StatusInternalServerError, err.Error())

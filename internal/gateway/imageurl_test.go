@@ -21,7 +21,7 @@ import (
 func TestParseDataURL(t *testing.T) {
 	// 1×1 PNG
 	pngB64 := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-	key, ct, data, err := parseDataURL("data:image/png;base64," + pngB64)
+	key, ct, data, err := parseDataURL("data:image/png;base64,"+pngB64, "flr-images")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -32,12 +32,12 @@ func TestParseDataURL(t *testing.T) {
 		t.Fatalf("decoded data wrong: %v", data[:2])
 	}
 	// 相同内容 → 相同 key（内容寻址，可去重）
-	key2, _, _, _ := parseDataURL("data:image/png;base64," + pngB64)
+	key2, _, _, _ := parseDataURL("data:image/png;base64,"+pngB64, "flr-images")
 	if key != key2 {
 		t.Fatal("same content should map to same key")
 	}
 	// jpeg / webp
-	if k, _, _, _ := parseDataURL("data:image/jpeg;base64," + pngB64); !strings.HasSuffix(k, ".jpg") {
+	if k, _, _, _ := parseDataURL("data:image/jpeg;base64,"+pngB64, "flr-images"); !strings.HasSuffix(k, ".jpg") {
 		t.Fatalf("jpeg ext wrong: %s", k)
 	}
 
@@ -49,7 +49,7 @@ func TestParseDataURL(t *testing.T) {
 		"data:image/png;base64,!!!not-base64", // 解码失败
 		"data:image/png",                      // 缺逗号
 	} {
-		if _, _, _, err := parseDataURL(bad); err == nil {
+		if _, _, _, err := parseDataURL(bad, "flr-images"); err == nil {
 			t.Fatalf("should reject: %s", bad)
 		}
 	}
@@ -248,5 +248,17 @@ func TestUploadMemoization(t *testing.T) {
 	g.memoUploadedSet("flr-images/x.png", "https://cdn.example.com/x.png")
 	if url, ok := g.memoUploaded("flr-images/x.png"); !ok || url != "https://cdn.example.com/x.png" {
 		t.Fatal("memo set/get mismatch")
+	}
+}
+
+// 对象前缀可配置（RAM 仅授权某前缀时必须一致）。
+func TestParseDataURLPrefix(t *testing.T) {
+	pngB64 := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	key, _, _, err := parseDataURL("data:image/png;base64,"+pngB64, "i")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(key, "i/") {
+		t.Fatalf("prefix not applied: %s", key)
 	}
 }

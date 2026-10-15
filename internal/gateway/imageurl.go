@@ -25,7 +25,7 @@ import (
 
 const (
 	maxUploadImageBytes = 40 << 20 // 单张图片上限 40MB（超过则保留 base64）
-	ossObjectPrefix     = "flr-images"
+	defaultObjectPrefix = "flr-images"
 	ossConfigTTL        = 15 * time.Second
 	ossUploadTimeout    = 60 * time.Second
 	ossCacheMaxEntries  = 5000
@@ -122,7 +122,8 @@ func (u *ossUploader) upload(ctx context.Context, key, contentType string, data 
 // ---------------------------------------------------------------- data URL
 
 // parseDataURL 解析 data:image/...;base64,<data>，返回对象 key、content-type 与原始字节。
-func parseDataURL(s string) (key, contentType string, data []byte, err error) {
+// prefix 为对象前缀（受 RAM 授权路径限制时需与之一致）。
+func parseDataURL(s, prefix string) (key, contentType string, data []byte, err error) {
 	if !strings.HasPrefix(s, "data:") {
 		return "", "", nil, fmt.Errorf("不是 data URL")
 	}
@@ -143,7 +144,7 @@ func parseDataURL(s string) (key, contentType string, data []byte, err error) {
 		return "", "", nil, fmt.Errorf("base64 解码失败: %w", err)
 	}
 	sum := sha256.Sum256(data)
-	key = ossObjectPrefix + "/" + hex.EncodeToString(sum[:])[:40] + "." + imageExt(mime)
+	key = prefix + "/" + hex.EncodeToString(sum[:])[:40] + "." + imageExt(mime)
 	return key, mime, data, nil
 }
 
@@ -474,8 +475,9 @@ func (g *Gateway) rewriteImagesForProvider(ctx context.Context, body []byte, end
 	}
 	up := newOSSUploader(cfg)
 
+	prefix := cfg.ObjectPrefix()
 	upload := func(dataURL string) (string, bool) {
-		key, contentType, data, err := parseDataURL(dataURL)
+		key, contentType, data, err := parseDataURL(dataURL, prefix)
 		if err != nil {
 			g.Log.Warn("图片解析失败，保留原样", "err", err)
 			return "", false

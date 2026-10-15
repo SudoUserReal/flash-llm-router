@@ -73,3 +73,22 @@ func TestResponsesTerminalEvents(t *testing.T) {
 		}
 	})
 }
+
+// 包装格式（{"data": {...}}）的 usage 解析。
+func TestParseUsageFromWrappedEnvelope(t *testing.T) {
+	wrapped := `{"data":{"choices":[{"message":{"role":"assistant","content":"hi"}}],
+		"usage":{"prompt_tokens":42,"completion_tokens":17,"total_tokens":59,
+		"prompt_tokens_details":{"cached_tokens":8}}},"success":true}`
+	u := ParseUsageFromJSON([]byte(wrapped), EndpointChat)
+	if u == nil || !u.Reported {
+		t.Fatal("wrapped envelope usage not parsed")
+	}
+	if u.PromptTokens != 42 || u.CompletionTokens != 17 || u.TotalTokens != 59 || u.CachedTokens != 8 {
+		t.Fatalf("wrapped usage wrong: %+v", u)
+	}
+	// 普通格式不受影响
+	plain := `{"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}`
+	if u2 := ParseUsageFromJSON([]byte(plain), EndpointChat); u2 == nil || u2.PromptTokens != 5 {
+		t.Fatalf("plain format broken: %+v", u2)
+	}
+}

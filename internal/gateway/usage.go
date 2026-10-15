@@ -83,8 +83,29 @@ func (j *responsesUsageJSON) toUsage() *Usage {
 	return u
 }
 
+// unwrapEnvelope 兼容部分中转网关的包装格式：{"data": {...}, "success": true}。
+// 若顶层没有预期字段但存在对象的 "data" 字段，则返回内层 JSON，否则原样返回。
+func unwrapEnvelope(body []byte) []byte {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(body, &top); err != nil {
+		return body
+	}
+	if _, hasUsage := top["usage"]; hasUsage {
+		return body
+	}
+	if _, hasChoices := top["choices"]; hasChoices {
+		return body
+	}
+	if raw, ok := top["data"]; ok && len(raw) > 0 && raw[0] == '{' {
+		return raw
+	}
+	return body
+}
+
 // ParseUsageFromJSON 从非流式响应体解析 usage。
+// 自动兼容包装格式（见 unwrapEnvelope）。
 func ParseUsageFromJSON(body []byte, endpoint string) *Usage {
+	body = unwrapEnvelope(body)
 	if endpoint == EndpointResponses {
 		var resp struct {
 			Usage *responsesUsageJSON `json:"usage"`
@@ -122,6 +143,7 @@ func parseUsageFromPayload(payload []byte, endpoint string, out **Usage) {
 		}
 		return
 	}
+	payload = unwrapEnvelope(payload)
 	var chunk struct {
 		Usage *usageJSON `json:"usage"`
 	}

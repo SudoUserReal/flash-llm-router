@@ -4,18 +4,20 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
 
 // 设置项 key
 const (
-	SettingLogRetentionDays = "log_retention_days" // 日志保留天数，0 = 永久保留
-	SettingOSSEndpoint      = "oss_endpoint"
-	SettingOSSBucket        = "oss_bucket"
-	SettingOSSAccessKeyID   = "oss_access_key_id"
+	SettingLogRetentionDays   = "log_retention_days" // 日志保留天数，0 = 永久保留
+	SettingOSSEndpoint        = "oss_endpoint"
+	SettingOSSBucket          = "oss_bucket"
+	SettingOSSAccessKeyID     = "oss_access_key_id"
 	SettingOSSAccessKeySecret = "oss_access_key_secret"
-	SettingOSSPublicBase    = "oss_public_base"
+	SettingOSSPublicBase      = "oss_public_base"
+	SettingOSSPrefix          = "oss_prefix" // 对象前缀（默认 flr-images；受 RAM 策略限制时可改为 i）
 )
 
 // DefaultLogRetentionDays 默认日志保留天数。
@@ -65,6 +67,16 @@ type OSSSettings struct {
 	AccessKeyID     string `json:"access_key_id"`     // AccessKey ID
 	AccessKeySecret string `json:"access_key_secret"` // AccessKey Secret
 	PublicBase      string `json:"public_base"`       // 可选：公开访问前缀（CDN 域名）；为空时用 bucket.endpoint
+	Prefix          string `json:"prefix"`            // 可选：对象前缀，默认 flr-images（RAM 仅授权某前缀时需一致）
+}
+
+// ObjectPrefix 返回规范化后的对象前缀（默认 flr-images）。
+func (o OSSSettings) ObjectPrefix() string {
+	p := strings.Trim(strings.TrimSpace(o.Prefix), "/")
+	if p == "" {
+		return "flr-images"
+	}
+	return p
 }
 
 // Complete 判断配置是否足够发起上传。
@@ -99,6 +111,9 @@ func (s *Store) GetOSSSettings(ctx context.Context) (OSSSettings, error) {
 	if out.PublicBase, err = s.getSettingOr(ctx, SettingOSSPublicBase); err != nil {
 		return out, err
 	}
+	if out.Prefix, err = s.getSettingOr(ctx, SettingOSSPrefix); err != nil {
+		return out, err
+	}
 	return out, nil
 }
 
@@ -110,6 +125,7 @@ func (s *Store) SetOSSSettings(ctx context.Context, in OSSSettings) error {
 		SettingOSSAccessKeyID:     in.AccessKeyID,
 		SettingOSSAccessKeySecret: in.AccessKeySecret,
 		SettingOSSPublicBase:      in.PublicBase,
+		SettingOSSPrefix:          in.Prefix,
 	}
 	for k, v := range pairs {
 		if err := s.SetSetting(ctx, k, v); err != nil {
