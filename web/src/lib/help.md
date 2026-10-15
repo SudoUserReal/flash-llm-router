@@ -221,6 +221,24 @@ curl {{BASE_URL}}/v1/models -H "Authorization: Bearer {{API_KEY}}"
 
 ---
 
+## 图片转 URL（阿里云 OSS，可选）
+
+Provider 配置中的「图片转 URL」开关（默认关闭）开启后，网关会把请求体中 `data:image/...;base64` 形式的图片上传到阿里云 OSS，并替换为公开 URL 后再转发给上游。
+
+- **收益**：多轮对话中图片以短 URL 重复发送而非 base64（可省数 MB/轮），上游直接按 URL 拉图
+- **范围**：仅处理 `data:image` 形式的 base64（外链图片不动）；支持 Chat Completions（`image_url`）与 Responses（`input_image`）两种格式
+- **去重**：图片按内容 SHA-256 哈希作为对象名（`flr-images/<hash>.<ext>`），相同图片只上传一次（进程内缓存）
+- **降级**：OSS 未配置完整或上传失败时，自动保留 base64 原样转发，请求不受影响
+- **前置条件**：Bucket 需允许公网读取（或配置「公开访问前缀」走 CDN），否则上游无法拉取图片
+
+OSS 配置为**全局设置**（Endpoint / Bucket / AccessKey ID / AccessKey Secret / 公开访问前缀），在任意 Provider 编辑弹窗中填写，或通过管理 API 设置：
+
+```bash
+curl -X PUT {{BASE_URL}}/api/settings \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"oss":{"endpoint":"oss-cn-hangzhou.aliyuncs.com","bucket":"my-images","access_key_id":"...","access_key_secret":"...","public_base":"https://cdn.example.com"}}'
+```
+
 ## 错误响应
 
 所有错误均为 OpenAI 兼容格式：

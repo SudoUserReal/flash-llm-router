@@ -20,6 +20,7 @@ type providerReq struct {
 	Enabled           *bool                       `json:"enabled"`
 	SupportsResponses *bool                       `json:"supports_responses"`
 	InjectStreamUsage *bool                       `json:"inject_stream_usage"`
+	ImageToURL        *bool                       `json:"image_to_url"`
 	MaxBodyMB         float64                     `json:"max_body_mb"`
 	MaxFailures       int                         `json:"max_failures"`
 	CooldownSeconds   int                         `json:"cooldown_seconds"`
@@ -117,6 +118,10 @@ func (req *providerReq) toInput(isCreate bool, defaults *store.Provider) (store.
 	if req.InjectStreamUsage != nil {
 		in.InjectStreamUsage = *req.InjectStreamUsage
 	}
+	in.ImageToURL = base.ImageToURL
+	if req.ImageToURL != nil {
+		in.ImageToURL = *req.ImageToURL
+	}
 	return in, nil
 }
 
@@ -130,6 +135,7 @@ func providerInputFromProvider(p *store.Provider) store.ProviderInput {
 		Enabled:           p.Enabled,
 		SupportsResponses: p.SupportsResponses,
 		InjectStreamUsage: p.InjectStreamUsage,
+		ImageToURL:        p.ImageToURL,
 		MaxBodyMB:         p.MaxBodyMB,
 		MaxFailures:       p.MaxFailures,
 		CooldownSeconds:   p.CooldownSeconds,

@@ -94,6 +94,7 @@ type Provider struct {
 	Enabled           bool    `json:"enabled"`
 	SupportsResponses bool    `json:"supports_responses"`
 	InjectStreamUsage bool    `json:"inject_stream_usage"`
+	ImageToURL        bool    `json:"image_to_url"` // 请求中的 base64 图片上传 OSS 并替换为公开 URL
 	MaxBodyMB         float64 `json:"max_body_mb"`
 	MaxFailures       int     `json:"max_failures"`
 	CooldownSeconds   int     `json:"cooldown_seconds"`

@@ -11,7 +11,7 @@ import (
 )
 
 const providerCols = `id, llm_api_id, name, kind, base_url, api_key, priority, enabled, supports_responses,
-	inject_stream_usage, max_body_mb, max_failures, cooldown_seconds, timeout_seconds,
+	inject_stream_usage, image_to_url, max_body_mb, max_failures, cooldown_seconds, timeout_seconds,
 	price_input::float8, price_output::float8, price_cached_input::float8, model_prices,
 	consecutive_failures, cooldown_until, last_error, last_error_at, last_balance, balance_checked_at,
 	created_at, updated_at`
@@ -21,7 +21,7 @@ func scanProvider(row pgx.Row) (*Provider, error) {
 	var modelPrices []byte
 	var balance []byte
 	if err := row.Scan(&p.ID, &p.LLMAPIID, &p.Name, &p.Kind, &p.BaseURL, &p.APIKey, &p.Priority,
-		&p.Enabled, &p.SupportsResponses, &p.InjectStreamUsage, &p.MaxBodyMB, &p.MaxFailures,
+		&p.Enabled, &p.SupportsResponses, &p.InjectStreamUsage, &p.ImageToURL, &p.MaxBodyMB, &p.MaxFailures,
 		&p.CooldownSeconds, &p.TimeoutSeconds, &p.PriceInput, &p.PriceOutput, &p.PriceCachedInput,
 		&modelPrices, &p.ConsecutiveFailures, &p.CooldownUntil, &p.LastError, &p.LastErrorAt,
 		&balance, &p.BalanceCheckedAt, &p.CreatedAt, &p.UpdatedAt); err != nil {
@@ -46,6 +46,7 @@ type ProviderInput struct {
 	Enabled           bool
 	SupportsResponses bool
 	InjectStreamUsage bool
+	ImageToURL        bool
 	MaxBodyMB         float64
 	MaxFailures       int
 	CooldownSeconds   int
@@ -60,12 +61,12 @@ func (s *Store) CreateProvider(ctx context.Context, llmAPIID int64, in ProviderI
 	mp, _ := json.Marshal(in.ModelPrices)
 	row := s.Pool.QueryRow(ctx, `
 		INSERT INTO providers (llm_api_id, name, kind, base_url, api_key, priority, enabled,
-			supports_responses, inject_stream_usage, max_body_mb, max_failures, cooldown_seconds,
+			supports_responses, inject_stream_usage, image_to_url, max_body_mb, max_failures, cooldown_seconds,
 			timeout_seconds, price_input, price_output, price_cached_input, model_prices)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		RETURNING `+providerCols,
 		llmAPIID, in.Name, in.Kind, in.BaseURL, in.APIKey, in.Priority, in.Enabled,
-		in.SupportsResponses, in.InjectStreamUsage, in.MaxBodyMB, in.MaxFailures, in.CooldownSeconds,
+		in.SupportsResponses, in.InjectStreamUsage, in.ImageToURL, in.MaxBodyMB, in.MaxFailures, in.CooldownSeconds,
 		in.TimeoutSeconds, in.PriceInput, in.PriceOutput, in.PriceCachedInput, mp)
 	p, err := scanProvider(row)
 	if err != nil {
@@ -107,13 +108,13 @@ func (s *Store) UpdateProvider(ctx context.Context, id int64, in ProviderInput) 
 	row := s.Pool.QueryRow(ctx, `
 		UPDATE providers SET
 			name = $2, kind = $3, base_url = $4, api_key = $5, priority = $6, enabled = $7,
-			supports_responses = $8, inject_stream_usage = $9, max_body_mb = $10, max_failures = $11,
-			cooldown_seconds = $12, timeout_seconds = $13, price_input = $14, price_output = $15,
-			price_cached_input = $16, model_prices = $17, updated_at = now()
+			supports_responses = $8, inject_stream_usage = $9, image_to_url = $10, max_body_mb = $11,
+			max_failures = $12, cooldown_seconds = $13, timeout_seconds = $14, price_input = $15,
+			price_output = $16, price_cached_input = $17, model_prices = $18, updated_at = now()
 		WHERE id = $1
 		RETURNING `+providerCols,
 		id, in.Name, in.Kind, in.BaseURL, in.APIKey, in.Priority, in.Enabled,
-		in.SupportsResponses, in.InjectStreamUsage, in.MaxBodyMB, in.MaxFailures, in.CooldownSeconds,
+		in.SupportsResponses, in.InjectStreamUsage, in.ImageToURL, in.MaxBodyMB, in.MaxFailures, in.CooldownSeconds,
 		in.TimeoutSeconds, in.PriceInput, in.PriceOutput, in.PriceCachedInput, mp)
 	p, err := scanProvider(row)
 	if errors.Is(err, pgx.ErrNoRows) {

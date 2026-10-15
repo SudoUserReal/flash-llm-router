@@ -90,6 +90,7 @@
     return {
       name: '', kind: 'openai', base_url: '', api_key: '', priority: 100,
       enabled: true, supports_responses: false, inject_stream_usage: true,
+      image_to_url: false,
       timeout_seconds: 300, max_body_mb: 0, max_failures: 0, cooldown_seconds: 60,
       price_input: 0, price_output: 0, price_cached_input: 0,
     }
@@ -102,11 +103,32 @@
   let savingProvider = $state(false)
   let autofillTier = $state('peak')
 
+  // 阿里云 OSS 全局配置（所有 Provider 共享；仅「图片转 URL」开启时使用）
+  const emptyOSS = () => ({ endpoint: '', bucket: '', access_key_id: '', access_key_secret: '', public_base: '' })
+  let oss = $state(emptyOSS())
+  let ossSnapshot = ''
+
+  async function loadOSSSettings() {
+    try {
+      const d = await get('/api/settings')
+      const o = d.oss || {}
+      oss = {
+        endpoint: o.endpoint || '', bucket: o.bucket || '',
+        access_key_id: o.access_key_id || '', access_key_secret: o.access_key_secret || '',
+        public_base: o.public_base || '',
+      }
+      ossSnapshot = JSON.stringify(oss)
+    } catch {
+      /* 读取失败时留空，不影响 Provider 保存 */
+    }
+  }
+
   function openCreateProvider() {
     editing = null
     pform = emptyProviderForm()
     pform.priority = (Math.max(0, ...providers.map((p) => p.priority)) || 0) + 10
     priceRows = []
+    loadOSSSettings()
     showProviderModal = true
   }
 
@@ -115,7 +137,8 @@
     pform = {
       name: p.name, kind: p.kind, base_url: p.base_url, api_key: p.api_key,
       priority: p.priority, enabled: p.enabled, supports_responses: p.supports_responses,
-      inject_stream_usage: p.inject_stream_usage, timeout_seconds: p.timeout_seconds,
+      inject_stream_usage: p.inject_stream_usage, image_to_url: p.image_to_url,
+      timeout_seconds: p.timeout_seconds,
       max_body_mb: p.max_body_mb, max_failures: p.max_failures, cooldown_seconds: p.cooldown_seconds,
       price_input: p.price_input, price_output: p.price_output, price_cached_input: p.price_cached_input,
     }
@@ -123,6 +146,7 @@
       model, input: v.input, output: v.output, cached: v.cached_input,
     }))
     autofillTier = 'peak'
+    loadOSSSettings()
     showProviderModal = true
   }
 
@@ -143,9 +167,19 @@
     if (!pform.name.trim()) return toastErr('请填写名称')
     if (!pform.base_url.trim()) return toastErr('请填写 Base URL')
     if (!pform.api_key.trim()) return toastErr('请填写 API Key')
+    if (pform.image_to_url) {
+      if (!oss.endpoint.trim() || !oss.bucket.trim() || !oss.access_key_id.trim() || !oss.access_key_secret.trim()) {
+        return toastErr('已开启图片转 URL，但 OSS 配置不完整（需 Endpoint / Bucket / AK / SK）')
+      }
+    }
     savingProvider = true
     const body = { ...pform, model_prices: rowsToMap(priceRows) }
     try {
+      // OSS 配置为全局设置：有改动时先保存
+      if (JSON.stringify(oss) !== ossSnapshot) {
+        await put('/api/settings', { oss })
+        ossSnapshot = JSON.stringify(oss)
+      }
       if (editing) {
         await put(`/api/providers/${editing.id}`, body)
         toastOk('已保存')
@@ -197,7 +231,8 @@
     return {
       name: p.name, kind: p.kind, base_url: p.base_url, api_key: p.api_key,
       priority: p.priority, enabled: p.enabled, supports_responses: p.supports_responses,
-      inject_stream_usage: p.inject_stream_usage, timeout_seconds: p.timeout_seconds,
+      inject_stream_usage: p.inject_stream_usage, image_to_url: p.image_to_url,
+      timeout_seconds: p.timeout_seconds,
       max_body_mb: p.max_body_mb, max_failures: p.max_failures, cooldown_seconds: p.cooldown_seconds,
       price_input: p.price_input, price_output: p.price_output, price_cached_input: p.price_cached_input,
       model_prices: p.model_prices || {},
@@ -569,6 +604,7 @@ curl {location.origin}/v1/chat/completions \
                 <span class="truncate font-medium text-ink">{p.name}</span>
                 <span class="badge badge-neutral">{kindLabel[p.kind] || p.kind}</span>
                 {#if p.supports_responses}<span class="badge badge-info">Responses</span>{/if}
+                {#if p.image_to_url}<span class="badge badge-accent" title="请求中的 base64 图片将上传 OSS 并替换为公开 URL">图片转URL</span>{/if}
                 {#if !p.enabled}<span class="badge badge-neutral">已停用</span>{/if}
                 {#if p.cooldown_until && cooldownRemaining(p.cooldown_until)}
                   <span class="badge badge-warning">熔断冷却中 · 剩 {cooldownRemaining(p.cooldown_until)}</span>
@@ -787,8 +823,44 @@ curl {location.origin}/v1/chat/completions \
         <label class="flex items-center gap-2 text-sm" title="流式请求自动注入 stream_options.include_usage 以获得计费数据">
           <input type="checkbox" class="h-4 w-4 accent-[#7612fa]" bind:checked={pform.inject_stream_usage} /> 流式计费注入
         </label>
+        <label class="flex items-center gap-2 text-sm" title="请求中的 base64 图片上传阿里云 OSS 后替换为公开链接，多轮对话不再重复携带图片，显著减小请求体">
+          <input type="checkbox" class="h-4 w-4 accent-[#7612fa]" bind:checked={pform.image_to_url} /> 图片转 URL（OSS）
+        </label>
       </div>
     </div>
+
+    {#if pform.image_to_url}
+      <!-- 图片转 URL：OSS 全局配置 -->
+      <fieldset class="rounded-xl border border-line p-4">
+        <legend class="px-1 text-xs font-medium text-muted">图片转 URL · 阿里云 OSS（全局配置，所有 Provider 共享）</legend>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="label" for="oss-endpoint">Endpoint *</label>
+            <input id="oss-endpoint" class="input font-mono text-xs" bind:value={oss.endpoint} placeholder="oss-cn-hangzhou.aliyuncs.com" />
+          </div>
+          <div>
+            <label class="label" for="oss-bucket">Bucket *</label>
+            <input id="oss-bucket" class="input font-mono text-xs" bind:value={oss.bucket} placeholder="my-images" />
+          </div>
+          <div>
+            <label class="label" for="oss-ak">AccessKey ID *</label>
+            <input id="oss-ak" class="input font-mono text-xs" bind:value={oss.access_key_id} />
+          </div>
+          <div>
+            <label class="label" for="oss-sk">AccessKey Secret *</label>
+            <input id="oss-sk" class="input font-mono text-xs" type="password" bind:value={oss.access_key_secret} />
+          </div>
+          <div class="col-span-2">
+            <label class="label" for="oss-base">公开访问前缀（可选，CDN 或自定义域名；留空用 OSS 默认域名）</label>
+            <input id="oss-base" class="input font-mono text-xs" bind:value={oss.public_base} placeholder="https://cdn.example.com" />
+          </div>
+        </div>
+        <p class="mt-2 text-[11px] leading-relaxed text-muted">
+          仅替换请求体中 <code class="font-mono">data:image</code> 形式的 base64 图片（外链图片不动）；图片按内容哈希去重，重复出现只上传一次。
+          <b>Bucket 需允许公网读取</b>（或通过公开前缀/CDN 可访问），否则上游无法拉取图片。上传失败时自动保留 base64，不影响请求。
+        </p>
+      </fieldset>
+    {/if}
 
     <!-- 熔断与超时 -->
     <fieldset class="rounded-xl border border-line p-4">

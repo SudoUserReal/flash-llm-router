@@ -128,6 +128,9 @@ CREATE INDEX IF NOT EXISTS idx_logs_client_created ON request_logs (client_id, c
 ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS in_progress BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_logs_in_progress ON request_logs (in_progress) WHERE in_progress;
 
+-- Provider 图片转 URL：请求中的 base64 图片上传 OSS 后替换为公开链接（默认关闭）
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS image_to_url BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- ---------------------------------------------------------------- 系统设置
 CREATE TABLE IF NOT EXISTS settings (
     key        TEXT PRIMARY KEY,

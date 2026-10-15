@@ -37,6 +37,9 @@ type Gateway struct {
 	Log   *slog.Logger
 
 	transports sync.Map // int(timeoutSeconds) -> *http.Transport
+
+	ossOnce   sync.Once // 懒初始化 OSS 状态
+	ossCached *ossState // OSS 配置缓存 + 上传结果缓存
 }
 
 func New(st *store.Store, logger *slog.Logger) *Gateway {
@@ -151,6 +154,13 @@ func (g *Gateway) Proxy(w http.ResponseWriter, r *http.Request, api *store.LLMAP
 		}
 
 		reqBody, injected := maybeInjectUsage(body, meta, p)
+		if p.ImageToURL {
+			var note string
+			reqBody, _, note = g.rewriteImagesForProvider(ctx, reqBody, endpoint, p)
+			if note != "" {
+				g.Log.Warn("图片转 URL 未生效", "provider", p.Name, "note", note)
+			}
+		}
 		resp, err := g.doUpstream(attemptCtx, r, p, endpoint, reqBody, meta.Stream)
 		latency := time.Since(attemptStart).Milliseconds()
 
