@@ -262,3 +262,58 @@ func TestParseDataURLPrefix(t *testing.T) {
 		t.Fatalf("prefix not applied: %s", key)
 	}
 }
+
+// 大小预估：与真实替换后的字节数完全一致；配置不全/无图片时返回原大小。
+func TestProjectImagesToURL(t *testing.T) {
+	pngB64 := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	// 两张真实尺寸图片（base64 远大于 URL，替换后应显著变小）
+	body := `{"model":"m","messages":[{"role":"user","content":[
+		{"type":"text","text":"看图"},
+		{"type":"image_url","image_url":{"url":"data:image/png;base64,` + pngB64 + `"}},
+		{"type":"image_url","image_url":"data:image/png;base64,` + pngB64 + `"}
+	]}]}`
+
+	cfg := store.OSSSettings{
+		Endpoint: "oss-cn-beijing.aliyuncs.com", Bucket: "b",
+		AccessKeyID: "ak-demo", AccessKeySecret: "sk-demo", Prefix: "i",
+	}
+
+	projected, n := projectImagesToURL([]byte(body), EndpointChat, cfg)
+	if n != 2 {
+		t.Fatalf("应识别 2 张图片，got %d", n)
+	}
+	if projected >= len(body) {
+		t.Fatalf("替换后应显著变小: %d >= %d", projected, len(body))
+	}
+
+	// 关键性质：预估 == 用同形状 URL 实际替换后的字节数（预估不上传、结果精确）
+	up := newOSSUploader(cfg)
+	real, n2, err := rewriteChatImages([]byte(body), func(dataURL string) (string, bool) {
+		mime, _, ok := quickDataURLInfo(dataURL)
+		if !ok {
+			return "", false
+		}
+		return syntheticImageURL(up, "i", mime), true
+	})
+	if err != nil || n2 != 2 {
+		t.Fatalf("参照替换失败: n=%d err=%v", n2, err)
+	}
+	if len(real) != projected {
+		t.Fatalf("预估与替换后不一致: projected=%d actual=%d（必须相等，否则阈值判定失真）", projected, len(real))
+	}
+
+	// 配置不完整 → 原样（与上传逻辑一致：不完整时不会替换）
+	if sz, n3 := projectImagesToURL([]byte(body), EndpointChat, store.OSSSettings{}); sz != len(body) || n3 != 0 {
+		t.Fatalf("配置不完整应返回原大小: sz=%d n=%d", sz, n3)
+	}
+	// 无图片 → 原样
+	plain := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
+	if sz, n4 := projectImagesToURL(plain, EndpointChat, cfg); sz != len(plain) || n4 != 0 {
+		t.Fatalf("无图片应返回原大小: sz=%d n=%d", sz, n4)
+	}
+	// 非 data URL 的图片链接不动
+	linked := []byte(`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":"https://example.com/a.png"}]}]}`)
+	if sz, n5 := projectImagesToURL(linked, EndpointChat, cfg); sz != len(linked) || n5 != 0 {
+		t.Fatalf("外链图片不应计入: sz=%d n=%d", sz, n5)
+	}
+}

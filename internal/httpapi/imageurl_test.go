@@ -1,8 +1,13 @@
 package httpapi
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -192,5 +197,109 @@ func TestImageToURLIncompleteConfigDegrades(t *testing.T) {
 	defer upMu.Unlock()
 	if !strings.Contains(string(upBody), "data:image/png;base64,") {
 		t.Fatal("未配置 OSS 时应保留 base64")
+	}
+}
+
+// 生成指定尺寸的随机噪声 PNG（不可压缩，保证请求体足够大）的 base64。
+func bigPNGBase64(t *testing.T, size int) string {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, size, size))
+	if _, err := rand.Read(img.Pix); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
+func newCountingOSS(t *testing.T, uploads *int) *httptest.Server {
+	t.Helper()
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			_, _ = io.Copy(io.Discard, r.Body)
+			mu.Lock()
+			*uploads++
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// 开启图片转 URL 时，请求体上限按「替换后预估大小」判定：
+// 原请求体超限、替换后很小 → 应放行（旧逻辑会误跳过）。
+func TestMaxBodyMBProjectedSizeAllowsImageURL(t *testing.T) {
+	e := newEnv(t)
+	uploads := 0
+	oss := newCountingOSS(t, &uploads)
+	if err := e.st.SetOSSSettings(t.Context(), store.OSSSettings{
+		Endpoint: oss.URL, Bucket: "img-b", AccessKeyID: "ak-demo", AccessKeySecret: "sk-demo", Prefix: "i",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	upstream, calls := chatUpstream(t, 10, 5)
+	apiID, key := e.createLLMAPI("投影放行", []string{"m"})
+	e.createProvider(apiID, map[string]any{
+		"name": "img-p", "base_url": upstream.URL, "image_to_url": true,
+		"max_body_mb": 0.1, "price_input": 1.0, "price_output": 1.0,
+	})
+
+	body := fmt.Sprintf(`{"model":"m","messages":[{"role":"user","content":[{"type":"image_url","image_url":"data:image/png;base64,%s"}]}]}`, bigPNGBase64(t, 256))
+	if mb := float64(len(body)) / (1 << 20); mb <= 0.1 {
+		t.Fatalf("测试请求体应超过阈值: %.3f MB", mb)
+	}
+
+	resp := e.req(http.MethodPost, "/v1/chat/completions", body, key)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("替换后大小应通过阈值（原 %d 字节），got %d", len(body), resp.StatusCode)
+	}
+	if *calls != 1 {
+		t.Fatalf("upstream calls = %d, want 1", *calls)
+	}
+	if uploads != 1 {
+		t.Fatalf("oss uploads = %d, want 1", uploads)
+	}
+}
+
+// 替换后仍超限 → 跳过该 Provider，且不得发生任何上传（避免无效上传）。
+func TestMaxBodyMBProjectedSkipAvoidsUpload(t *testing.T) {
+	e := newEnv(t)
+	uploads := 0
+	oss := newCountingOSS(t, &uploads)
+	if err := e.st.SetOSSSettings(t.Context(), store.OSSSettings{
+		Endpoint: oss.URL, Bucket: "img-b", AccessKeyID: "ak-demo", AccessKeySecret: "sk-demo", Prefix: "i",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	upstream, calls := chatUpstream(t, 10, 5)
+	apiID, key := e.createLLMAPI("投影跳过", []string{"m"})
+	e.createProvider(apiID, map[string]any{
+		"name": "img-skip", "base_url": upstream.URL, "image_to_url": true,
+		"max_body_mb": 0.001, // ≈1KB：替换掉图片后，正文文本仍超限
+	})
+
+	// ~12KB 中文文本 + 图片 → 替换后仍远超 1KB
+	body := fmt.Sprintf(`{"model":"m","messages":[{"role":"user","content":[{"type":"text","text":"%s"},{"type":"image_url","image_url":"data:image/png;base64,%s"}]}]}`,
+		strings.Repeat("上下文填充", 800), bigPNGBase64(t, 128))
+
+	resp := e.req(http.MethodPost, "/v1/chat/completions", body, key)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("替换后仍超限应 503，got %d", resp.StatusCode)
+	}
+	if *calls != 0 {
+		t.Fatal("被跳过的 Provider 不应收到请求")
+	}
+	if uploads != 0 {
+		t.Fatalf("超限跳过时不应发生上传（白上传），got %d 次", uploads)
 	}
 }

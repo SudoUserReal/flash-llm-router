@@ -166,6 +166,63 @@ func imageExt(mime string) string {
 	return "bin"
 }
 
+// ---------------------------------------------------------------- 大小预估
+
+// quickDataURLInfo 轻量解析 data URL：只取 MIME 与 base64 载荷长度（不解码），
+// 用于「图片替换为 URL 后」的请求体大小预估。
+func quickDataURLInfo(s string) (mime string, payloadLen int, ok bool) {
+	if !strings.HasPrefix(s, "data:") {
+		return "", 0, false
+	}
+	comma := strings.IndexByte(s, ',')
+	if comma < 0 {
+		return "", 0, false
+	}
+	meta, payload := s[len("data:"):comma], s[comma+1:]
+	if !strings.Contains(meta, "base64") {
+		return "", 0, false
+	}
+	mime = strings.TrimSpace(strings.Split(meta, ";")[0])
+	if !strings.HasPrefix(mime, "image/") {
+		return "", 0, false
+	}
+	return mime, len(payload), true
+}
+
+// syntheticImageURL 生成与真实 OSS URL 等长的占位 URL，形状：{base}/{prefix}/{sha256前40}.{ext}。
+// 真实 URL 的长度只取决于 base/prefix/扩展名（哈希恒为 40 位十六进制），因此预估与替换后完全一致。
+func syntheticImageURL(up *ossUploader, prefix, mime string) string {
+	return up.publicURL(prefix + "/" + strings.Repeat("0", 40) + "." + imageExt(mime))
+}
+
+// projectImagesToURL 估算「图片替换为 URL 后」的请求体字节数。
+// 纯本地计算：不解码、不上传；与真实替换共用同一套遍历/序列化逻辑，
+// 因此预估结果与实际替换后的字节数一致。
+// 返回预估大小与将被替换的图片数量；数量为 0 时调用方应使用原始大小。
+func projectImagesToURL(body []byte, endpoint string, cfg store.OSSSettings) (int, int) {
+	if !cfg.Complete() {
+		return len(body), 0
+	}
+	up := newOSSUploader(cfg)
+	prefix := cfg.ObjectPrefix()
+	estimate := func(dataURL string) (string, bool) {
+		mime, payloadLen, ok := quickDataURLInfo(dataURL)
+		if !ok {
+			return "", false
+		}
+		// 估算解码后大小：超过上传上限的图片实际上不会被替换（与上传逻辑保持一致）
+		if int64(payloadLen)*3/4 > int64(maxUploadImageBytes) {
+			return "", false
+		}
+		return syntheticImageURL(up, prefix, mime), true
+	}
+	projected, n, err := rewriteImagesToURL(body, endpoint, estimate)
+	if err != nil || n == 0 {
+		return len(body), 0
+	}
+	return len(projected), n
+}
+
 // ---------------------------------------------------------------- 请求体重写
 
 // rewriteImagesToURL 遍历请求体，把 base64 图片替换为 URL。upload 返回新 URL 与是否成功替换。

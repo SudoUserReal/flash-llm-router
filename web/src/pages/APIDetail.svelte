@@ -874,7 +874,7 @@ curl {location.origin}/v1/chat/completions \
         <div>
           <label class="label" for="pf-body">请求体上限（MB）</label>
           <input id="pf-body" class="input" type="number" min="0" step="0.1" bind:value={pform.max_body_mb} />
-          <p class="mt-1 text-[10px] leading-tight text-muted/80">超过则本次跳过此 Provider，0=不限</p>
+          <p class="mt-1 text-[10px] leading-tight text-muted/80">超过则本次跳过此 Provider，0=不限（开启图片转 URL 时按替换后大小判定）</p>
         </div>
         <div>
           <label class="label" for="pf-fail">连续失败熔断（次）</label>

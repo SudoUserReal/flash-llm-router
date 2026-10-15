@@ -119,7 +119,7 @@ func (g *Gateway) Proxy(w http.ResponseWriter, r *http.Request, api *store.LLMAP
 
 	// 1. 选路：按优先级可选 Provider 列表
 	now := time.Now()
-	candidates := g.selectProviders(ctx, api.ID, endpoint, len(body), now)
+	candidates := g.selectProviders(ctx, api.ID, endpoint, body, now)
 
 	if len(candidates) == 0 {
 		msg := "no available provider: 所有 Provider 均被禁用、处于熔断冷却期，或被跳过条件（请求体大小/Responses 支持）过滤"
@@ -385,13 +385,24 @@ func appendNote(existing, note string) string {
 }
 
 // selectProviders 返回按优先级排序、通过跳过条件过滤后的候选 Provider。
-func (g *Gateway) selectProviders(ctx context.Context, llmAPIID int64, endpoint string, bodyLen int, now time.Time) []store.Provider {
+//
+// 请求体大小判定：Provider 开启「图片转 URL」时，按「图片替换为 URL 后」的预估大小判定
+// （纯本地估算、不发起上传；超限时跳过且不会产生任何上传开销）。其余 Provider 仍按原始大小判定。
+func (g *Gateway) selectProviders(ctx context.Context, llmAPIID int64, endpoint string, body []byte, now time.Time) []store.Provider {
 	all, err := g.Store.ListProviders(ctx, llmAPIID)
 	if err != nil {
 		g.Log.Error("list providers", "err", err)
 		return nil
 	}
-	bodyMB := float64(bodyLen) / (1024 * 1024)
+	originalLen := len(body)
+	hasImages := bytes.Contains(body, []byte("data:image"))
+
+	var (
+		projectedLen  int
+		projectedImgs int
+		projectedDone bool
+	)
+
 	out := make([]store.Provider, 0, len(all))
 	for _, p := range all {
 		if !p.Enabled {
@@ -400,8 +411,24 @@ func (g *Gateway) selectProviders(ctx context.Context, llmAPIID int64, endpoint 
 		if p.InCooldown(now) {
 			continue
 		}
-		if p.MaxBodyMB > 0 && bodyMB > p.MaxBodyMB {
-			continue // 请求体超过该 Provider 的阈值：本次请求不消费它
+		if p.MaxBodyMB > 0 {
+			effectiveLen := originalLen
+			if p.ImageToURL && hasImages {
+				if !projectedDone {
+					projectedLen, projectedImgs = g.projectedBodySize(ctx, body, endpoint)
+					projectedDone = true
+					if projectedImgs > 0 {
+						g.Log.Debug("请求体大小按图片替换后预估",
+							"original", originalLen, "projected", projectedLen, "images", projectedImgs)
+					}
+				}
+				if projectedImgs > 0 {
+					effectiveLen = projectedLen
+				}
+			}
+			if float64(effectiveLen)/(1024*1024) > p.MaxBodyMB {
+				continue // 请求体超过该 Provider 的阈值：本次请求不消费它
+			}
 		}
 		if endpoint == EndpointResponses && !p.SupportsResponses {
 			continue // 仅直通：不支持 Responses 的 Provider 不参与
@@ -409,6 +436,16 @@ func (g *Gateway) selectProviders(ctx context.Context, llmAPIID int64, endpoint 
 		out = append(out, p)
 	}
 	return out
+}
+
+// projectedBodySize 读取 OSS 配置并估算图片替换后的请求体大小；配置缺失或读取失败时返回原始大小。
+func (g *Gateway) projectedBodySize(ctx context.Context, body []byte, endpoint string) (int, int) {
+	cfg, err := g.ossConfig(ctx)
+	if err != nil {
+		g.Log.Warn("读取 OSS 配置失败，按原始大小判定请求体", "err", err)
+		return len(body), 0
+	}
+	return projectImagesToURL(body, endpoint, cfg)
 }
 
 // maybeInjectUsage 流式 chat 请求注入 stream_options.include_usage 以获得计费数据。
