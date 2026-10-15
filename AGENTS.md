@@ -43,6 +43,16 @@
 - 字体经 Google Fonts 在 `web/index.html` 加载（Plus Jakarta Sans / Inter / Sometype Mono），离线环境自动回退系统字体。
 - 数据大数字（金额、token）用 `font-bold`；表头用 `.table-th`（uppercase 小字）。
 
+## 安全约定（硬性规则）
+
+**永远不要把真实凭据或私有地址写进代码、配置、测试、文档、注释或提交信息。**
+
+- **禁止写入真实 API Key / token / 密码 / DSN 凭据**：包括上游 Provider 的 key、调用方 key、数据库密码、会话 token。代码中只允许出现占位符，如 `sk-demo-xxx`、`sk-flr-xxxxxxxx`、`<API_KEY>`。
+- **禁止写入私有地址**：内网 IP（`192.168.*`、`10.*`、`172.16-31.*`）、私有域名、自建中转/上游地址、NAS 或服务器地址。
+- **允许的例外**：`127.0.0.1` / `localhost`（本地开发与测试）、`example.com` 系列（占位域名）、公开官方 API 域名（如 `api.deepseek.com`、`api.openai.com`，用于文档说明，但**不得**附带任何 key）。
+- **示例与测试数据**：一律使用虚构名称与假数据（如 `sk-demo-relay-0002`、`10.0.0.x`）。
+- **提交前自检**：`git diff` 与 `git log -p` 中不得出现上述任何内容；历史提交如需清理，用 `git filter-repo` 或重建历史，不能只改最新提交。
+
 ## 项目约定
 
 - 后端：Go 单二进制，前端产物经 `//go:embed web/dist` 打包；`internal/store/schema.sql` 是唯一 schema 来源（启动时幂等迁移）。
@@ -53,6 +63,7 @@
   - 流式计费注入 `stream_options.include_usage`，并过滤由此产生的纯 usage 事件；
   - 优先级的数字越小越优先，成功一次清除连续失败计数。
 - 调用方（钱包）语义：`api_clients` 持 Key，余额 ≤ 0 或超日/周/月限额时拒绝请求；成功后按实际费用条件扣费；LLM API 主 Key 不受限。改鉴权逻辑时注意保留主 Key 回退路径。
+- 请求日志语义：请求进入时先落一条 `in_progress=true` 的"请求中"日志（`BeginLog`），结束后由 `FinishLog` 更新为终态；统计口径排除进行中的日志（`buildRangeWhere` 固定 `in_progress = false`）；进程异常退出残留的进行中日志由 janitor 标记为 499 中断。
 - 修改前端后必须：`cd web && npm run build`，然后重新 `go build`（`go:embed` 需要新产物）。
 
 ## 常用命令

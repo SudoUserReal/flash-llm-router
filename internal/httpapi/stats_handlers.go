@@ -56,11 +56,11 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request, _ *store
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"total":     total,
-		"today":     today,
-		"last_7d":   last7d,
-		"llm_apis":  list,
-		"timezone":  s.StatsTZ.String(),
+		"total":       total,
+		"today":       today,
+		"last_7d":     last7d,
+		"llm_apis":    list,
+		"timezone":    s.StatsTZ.String(),
 		"server_time": now,
 	})
 }

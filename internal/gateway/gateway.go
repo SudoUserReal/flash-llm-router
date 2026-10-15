@@ -26,10 +26,10 @@ const (
 )
 
 const (
-	MaxRequestBody        = 64 << 20 // 对外请求体上限 64MB
-	maxUpstreamErrorBody  = 1 << 20  // 保留上游错误体上限 1MB
-	maxUpstreamRespBody   = 64 << 20 // 非流式响应体读取上限 64MB
-	maxModelNameLen       = 200
+	MaxRequestBody       = 64 << 20 // 对外请求体上限 64MB
+	maxUpstreamErrorBody = 1 << 20  // 保留上游错误体上限 1MB
+	maxUpstreamRespBody  = 64 << 20 // 非流式响应体读取上限 64MB
+	maxModelNameLen      = 200
 )
 
 type Gateway struct {
@@ -52,8 +52,8 @@ type requestMeta struct {
 
 func parseRequestMeta(body []byte) (*requestMeta, error) {
 	var m struct {
-		Model  string `json:"model"`
-		Stream bool   `json:"stream"`
+		Model         string `json:"model"`
+		Stream        bool   `json:"stream"`
 		StreamOptions *struct {
 			IncludeUsage *bool `json:"include_usage"`
 		} `json:"stream_options"`
@@ -84,12 +84,14 @@ func (g *Gateway) Proxy(w http.ResponseWriter, r *http.Request, api *store.LLMAP
 	meta, err := parseRequestMeta(body)
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
-		_ = g.Store.InsertLog(ctx, store.LogInput{
+		logCtx, cancelLog := detach(ctx)
+		_ = g.Store.InsertLog(logCtx, store.LogInput{
 			LLMAPIID: &api.ID, LLMAPIName: api.Name,
 			Endpoint: endpoint, Error: err.Error(), RequestBytes: int64(len(body)),
 			ClientIP: clientAddr, Priced: true,
 			ClientID: clientRef(client), ClientName: clientName(client),
 		})
+		cancelLog()
 		return
 	}
 
@@ -106,6 +108,12 @@ func (g *Gateway) Proxy(w http.ResponseWriter, r *http.Request, api *store.LLMAP
 	}
 	start := time.Now()
 
+	// 先落一条"进行中"日志：长耗时请求（尤其流式）在完成前即可在日志中看到
+	logID, beginErr := g.Store.BeginLog(ctx, logIn)
+	if beginErr != nil {
+		g.Log.Warn("写入进行中日志失败", "err", beginErr)
+	}
+
 	// 1. 选路：按优先级可选 Provider 列表
 	now := time.Now()
 	candidates := g.selectProviders(ctx, api.ID, endpoint, len(body), now)
@@ -113,10 +121,11 @@ func (g *Gateway) Proxy(w http.ResponseWriter, r *http.Request, api *store.LLMAP
 	if len(candidates) == 0 {
 		msg := "no available provider: 所有 Provider 均被禁用、处于熔断冷却期，或被跳过条件（请求体大小/Responses 支持）过滤"
 		writeOpenAIError(w, http.StatusServiceUnavailable, "router_unavailable", msg)
+		logIn.Success = false
 		logIn.Error = msg
 		logIn.LatencyMS = time.Since(start).Milliseconds()
 		logIn.StatusCode = http.StatusServiceUnavailable
-		_ = g.Store.InsertLog(ctx, logIn)
+		g.finishLog(ctx, logID, logIn)
 		return
 	}
 
@@ -150,7 +159,7 @@ func (g *Gateway) Proxy(w http.ResponseWriter, r *http.Request, api *store.LLMAP
 				cancel()
 			}
 			attempts = append(attempts, store.AttemptInfo{Provider: p.Name, Error: err.Error(), LatencyMS: latency})
-			_ = g.Store.RecordProviderFailure(ctx, p.ID, err.Error())
+			g.recordProviderFailure(ctx, p.ID, err.Error())
 			lastErr = err
 			lastResp = nil
 			g.Log.Warn("upstream request failed", "provider", p.Name, "err", err)
@@ -160,7 +169,7 @@ func (g *Gateway) Proxy(w http.ResponseWriter, r *http.Request, api *store.LLMAP
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			// 2xx：成功路径（completeSuccess 内读完响应体后由本函数释放 cancel）
 			attempts = append(attempts, store.AttemptInfo{Provider: p.Name, Status: resp.StatusCode, LatencyMS: latency})
-			g.completeSuccess(w, r, api, p, endpoint, meta, resp, injected, logIn, start, attempts, client)
+			g.completeSuccess(w, r, api, p, endpoint, meta, resp, injected, logIn, logID, start, attempts, client)
 			if cancel != nil {
 				cancel()
 			}
@@ -175,7 +184,7 @@ func (g *Gateway) Proxy(w http.ResponseWriter, r *http.Request, api *store.LLMAP
 		}
 		errText := summarizeUpstreamError(resp.StatusCode, errBody)
 		attempts = append(attempts, store.AttemptInfo{Provider: p.Name, Status: resp.StatusCode, Error: errText, LatencyMS: latency})
-		_ = g.Store.RecordProviderFailure(ctx, p.ID, errText)
+		g.recordProviderFailure(ctx, p.ID, errText)
 		lastResp = &upstreamError{status: resp.StatusCode, header: resp.Header, body: errBody}
 		lastErr = nil
 		g.Log.Warn("upstream returned error", "provider", p.Name, "status", resp.StatusCode)
@@ -204,7 +213,58 @@ func (g *Gateway) Proxy(w http.ResponseWriter, r *http.Request, api *store.LLMAP
 		logIn.Error = msg
 		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", msg)
 	}
-	_ = g.Store.InsertLog(ctx, logIn)
+	g.finishLog(ctx, logID, logIn)
+}
+
+// detach 返回脱离请求生命周期的 context（保留值、带超时）。
+// 用于"请求结束后仍必须完成"的副作用：日志落库、钱包扣费、Provider 健康状态。
+// 若直接使用 r.Context()，客户端一旦断开/超时就会被取消，导致这些操作静默失败。
+func detach(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+}
+
+// recordProviderSuccess / recordProviderFailure 更新 Provider 健康状态。
+// 同样使用 detached context：即使客户端已断开，熔断计数也必须准确。
+func (g *Gateway) recordProviderSuccess(ctx context.Context, id int64) {
+	ctx, cancel := detach(ctx)
+	defer cancel()
+	_ = g.Store.RecordProviderSuccess(ctx, id)
+}
+
+func (g *Gateway) recordProviderFailure(ctx context.Context, id int64, msg string) {
+	ctx, cancel := detach(ctx)
+	defer cancel()
+	_ = g.Store.RecordProviderFailure(ctx, id, msg)
+}
+
+// finishLog 将日志写为终态：优先更新进行中的那条，失败则直接插入。
+func (g *Gateway) finishLog(ctx context.Context, logID int64, in store.LogInput) {
+	ctx, cancel := detach(ctx)
+	defer cancel()
+
+	if logID == 0 {
+		_ = g.Store.InsertLog(ctx, in)
+		return
+	}
+	err := g.Store.FinishLog(ctx, logID, store.LogFinish{
+		ProviderID:       in.ProviderID,
+		ProviderName:     in.ProviderName,
+		StatusCode:       in.StatusCode,
+		Success:          in.Success,
+		Error:            in.Error,
+		LatencyMS:        in.LatencyMS,
+		PromptTokens:     in.PromptTokens,
+		CachedTokens:     in.CachedTokens,
+		CompletionTokens: in.CompletionTokens,
+		TotalTokens:      in.TotalTokens,
+		Cost:             in.Cost,
+		Priced:           in.Priced,
+		Attempts:         in.Attempts,
+		AttemptsDetail:   in.AttemptsDetail,
+	})
+	if err != nil {
+		g.Log.Error("更新请求日志失败", "err", err, "log_id", logID)
+	}
 }
 
 type upstreamError struct {
@@ -217,7 +277,7 @@ type upstreamError struct {
 func (g *Gateway) completeSuccess(
 	w http.ResponseWriter, r *http.Request, api *store.LLMAPI, p *store.Provider,
 	endpoint string, meta *requestMeta, resp *http.Response, injectedUsage bool,
-	logIn store.LogInput, start time.Time, attempts []store.AttemptInfo, client *store.APIClient,
+	logIn store.LogInput, logID int64, start time.Time, attempts []store.AttemptInfo, client *store.APIClient,
 ) {
 	defer resp.Body.Close()
 	ctx := r.Context()
@@ -247,7 +307,7 @@ func (g *Gateway) completeSuccess(
 	}
 
 	// 对 Provider 而言：拿到 2xx 即成功（即使流中途被客户端中断）
-	_ = g.Store.RecordProviderSuccess(ctx, p.ID)
+	g.recordProviderSuccess(ctx, p.ID)
 
 	logIn.Success = true
 	logIn.StatusCode = http.StatusOK
@@ -271,9 +331,14 @@ func (g *Gateway) completeSuccess(
 		logIn.Priced = p.HasPrice()
 
 		// 调用方钱包扣费（条件更新防止并发超支）
+		// 使用 detached context：客户端断开也必须完成扣费，否则费用漏收
 		if client != nil && cost > 0 {
-			if ok, err := g.Store.ChargeClient(ctx, client.ID, cost); err != nil {
+			chargeCtx, cancel := detach(ctx)
+			ok, err := g.Store.ChargeClient(chargeCtx, client.ID, cost)
+			cancel()
+			if err != nil {
 				logIn.Error = appendNote(logIn.Error, "钱包扣费失败: "+err.Error())
+				g.Log.Error("钱包扣费失败", "err", err, "client", client.ID, "cost", cost)
 			} else if !ok {
 				logIn.Error = appendNote(logIn.Error, "钱包余额不足，本次费用未扣除")
 			}
@@ -284,7 +349,7 @@ func (g *Gateway) completeSuccess(
 			logIn.Error = "上游未返回 usage，未计费"
 		}
 	}
-	_ = g.Store.InsertLog(ctx, logIn)
+	g.finishLog(ctx, logID, logIn)
 }
 
 func clientRef(c *store.APIClient) *int64 {

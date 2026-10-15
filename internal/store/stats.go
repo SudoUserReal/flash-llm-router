@@ -14,7 +14,8 @@ type RangeFilter struct {
 }
 
 func buildRangeWhere(f RangeFilter) (string, []any) {
-	conds := []string{"1=1"}
+	// 统计仅计入已完成请求：进行中的日志尚无终态数据，避免污染计数与费用
+	conds := []string{"in_progress = false"}
 	args := []any{}
 	add := func(expr string, v any) {
 		args = append(args, v)

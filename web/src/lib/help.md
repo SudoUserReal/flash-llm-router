@@ -236,6 +236,7 @@ curl {{BASE_URL}}/v1/models -H "Authorization: Bearer {{API_KEY}}"
 | 403 | `forbidden` | 调用方账号已被禁用 |
 | 404 | `invalid_request_error` | 请求的模型不在模型清单中（`/v1/models/{model}`） |
 | 413 | `request_too_large` | 请求体超过 64MB |
+| 499 | `client_closed_request` | 请求中断（客户端断开，或服务重启时残留的进行中请求） |
 | 429 | `insufficient_balance` | 钱包余额不足 |
 | 429 | `daily_limit_exceeded` / `weekly_limit_exceeded` / `monthly_limit_exceeded` | 超出对应周期消费限额 |
 | 503 | `router_unavailable` | 没有可用 Provider（全部禁用 / 熔断冷却 / 被跳过条件过滤） |

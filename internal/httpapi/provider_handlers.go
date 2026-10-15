@@ -12,21 +12,21 @@ import (
 )
 
 type providerReq struct {
-	Name              string                   `json:"name"`
-	Kind              string                   `json:"kind"`
-	BaseURL           string                   `json:"base_url"`
-	APIKey            string                   `json:"api_key"`
-	Priority          int                      `json:"priority"`
-	Enabled           *bool                    `json:"enabled"`
-	SupportsResponses *bool                    `json:"supports_responses"`
-	InjectStreamUsage *bool                    `json:"inject_stream_usage"`
-	MaxBodyMB         float64                  `json:"max_body_mb"`
-	MaxFailures       int                      `json:"max_failures"`
-	CooldownSeconds   int                      `json:"cooldown_seconds"`
-	TimeoutSeconds    int                      `json:"timeout_seconds"`
-	PriceInput        float64                  `json:"price_input"`
-	PriceOutput       float64                  `json:"price_output"`
-	PriceCachedInput  float64                  `json:"price_cached_input"`
+	Name              string                      `json:"name"`
+	Kind              string                      `json:"kind"`
+	BaseURL           string                      `json:"base_url"`
+	APIKey            string                      `json:"api_key"`
+	Priority          int                         `json:"priority"`
+	Enabled           *bool                       `json:"enabled"`
+	SupportsResponses *bool                       `json:"supports_responses"`
+	InjectStreamUsage *bool                       `json:"inject_stream_usage"`
+	MaxBodyMB         float64                     `json:"max_body_mb"`
+	MaxFailures       int                         `json:"max_failures"`
+	CooldownSeconds   int                         `json:"cooldown_seconds"`
+	TimeoutSeconds    int                         `json:"timeout_seconds"`
+	PriceInput        float64                     `json:"price_input"`
+	PriceOutput       float64                     `json:"price_output"`
+	PriceCachedInput  float64                     `json:"price_cached_input"`
 	ModelPrices       map[string]store.ModelPrice `json:"model_prices"`
 }
 
@@ -40,19 +40,19 @@ func validKind(kind string) bool {
 
 func (req *providerReq) toInput(isCreate bool, defaults *store.Provider) (store.ProviderInput, error) {
 	in := store.ProviderInput{
-		Name:              strings.TrimSpace(req.Name),
-		Kind:              strings.TrimSpace(req.Kind),
-		BaseURL:           strings.TrimSpace(req.BaseURL),
-		APIKey:            strings.TrimSpace(req.APIKey),
-		Priority:          req.Priority,
-		MaxBodyMB:         req.MaxBodyMB,
-		MaxFailures:       req.MaxFailures,
-		CooldownSeconds:   req.CooldownSeconds,
-		TimeoutSeconds:    req.TimeoutSeconds,
-		PriceInput:        req.PriceInput,
-		PriceOutput:       req.PriceOutput,
-		PriceCachedInput:  req.PriceCachedInput,
-		ModelPrices:       req.ModelPrices,
+		Name:             strings.TrimSpace(req.Name),
+		Kind:             strings.TrimSpace(req.Kind),
+		BaseURL:          strings.TrimSpace(req.BaseURL),
+		APIKey:           strings.TrimSpace(req.APIKey),
+		Priority:         req.Priority,
+		MaxBodyMB:        req.MaxBodyMB,
+		MaxFailures:      req.MaxFailures,
+		CooldownSeconds:  req.CooldownSeconds,
+		TimeoutSeconds:   req.TimeoutSeconds,
+		PriceInput:       req.PriceInput,
+		PriceOutput:      req.PriceOutput,
+		PriceCachedInput: req.PriceCachedInput,
+		ModelPrices:      req.ModelPrices,
 	}
 	if in.Name == "" {
 		return in, errors.New("Provider 名称不能为空")

@@ -21,8 +21,10 @@
     .then((d) => (apis = d.llm_apis))
     .catch((e) => toastErr(e.message))
 
-  async function load() {
-    loading = true
+  let refreshTimer = 0
+
+  async function load(silent = false) {
+    if (!silent) loading = true
     try {
       const qs = new URLSearchParams()
       if (apiId) qs.set('llm_api_id', apiId)
@@ -36,10 +38,15 @@
       const d = await get('/api/logs?' + qs.toString())
       logs = d.logs
       total = d.total
+      // 有进行中的请求时自动轮询刷新，便于观察实时状态
+      clearTimeout(refreshTimer)
+      if (logs.some((l) => l.in_progress)) {
+        refreshTimer = setTimeout(() => load(true), 3000)
+      }
     } catch (e) {
-      toastErr(e.message)
+      if (!silent) toastErr(e.message)
     } finally {
-      loading = false
+      if (!silent) loading = false
     }
   }
   load()
@@ -173,24 +180,35 @@
                 </div>
               </td>
               <td class="table-td">
-                {#if l.success}
+                {#if l.in_progress}
+                  <span class="badge badge-info">
+                    <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#0091ff]"></span>
+                    请求中
+                  </span>
+                {:else if l.success}
                   <span class="badge badge-success">{l.status_code}</span>
                 {:else}
                   <span class="badge badge-error">{l.status_code || 'ERR'}</span>
                 {/if}
               </td>
               <td class="table-td text-right font-mono text-xs">
-                {formatNumber(l.prompt_tokens)} / {formatNumber(l.cached_tokens)} / {formatNumber(l.completion_tokens)}
+                {#if l.in_progress}
+                  <span class="text-muted/60">—</span>
+                {:else}
+                  {formatNumber(l.prompt_tokens)} / {formatNumber(l.cached_tokens)} / {formatNumber(l.completion_tokens)}
+                {/if}
               </td>
               <td class="table-td text-right">
-                {#if l.priced}
+                {#if l.in_progress}
+                  <span class="text-xs text-muted/60">—</span>
+                {:else if l.priced}
                   <span class="text-accent">{formatCost(l.cost)}</span>
                 {:else}
                   <span class="text-xs text-muted/80" title="上游未返回 usage">—</span>
                 {/if}
               </td>
-              <td class="table-td text-right text-xs text-muted">{formatLatency(l.latency_ms)}</td>
-              <td class="table-td text-right text-xs text-muted">{l.attempts}</td>
+              <td class="table-td text-right text-xs text-muted">{l.in_progress ? '—' : formatLatency(l.latency_ms)}</td>
+              <td class="table-td text-right text-xs text-muted">{l.in_progress ? '—' : l.attempts}</td>
             </tr>
             {#if expanded === l.id}
               <tr class="bg-surface/80">

@@ -18,6 +18,14 @@ func Run(ctx context.Context, st *store.Store, logger *slog.Logger, interval tim
 	defer ticker.Stop()
 
 	cleanup := func() {
+		// 1) 先把超时仍"进行中"的日志标记为中断（进程重启/异常退出的残留）
+		if n, err := st.MarkStaleInProgress(ctx, time.Now().UTC().Add(-staleInProgressAfter)); err != nil {
+			logger.Warn("标记中断日志失败", "err", err)
+		} else if n > 0 {
+			logger.Info("已将超时的进行中日志标记为中断", "count", n)
+		}
+
+		// 2) 按保留策略滚动删除过期日志
 		n, err := CleanupOnce(ctx, st)
 		if err != nil {
 			logger.Warn("日志清理失败", "err", err)
@@ -37,6 +45,9 @@ func Run(ctx context.Context, st *store.Store, logger *slog.Logger, interval tim
 		}
 	}
 }
+
+// staleInProgressAfter 超过该时长仍处于"进行中"的日志视为中断。
+const staleInProgressAfter = time.Hour
 
 // CleanupOnce 按当前保留策略删除一次过期日志，返回删除条数。
 // 保留天数为 0 时表示永久保留，不做任何删除。

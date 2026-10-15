@@ -187,6 +187,25 @@ type RequestLog struct {
 	ClientIP         string        `json:"client_ip"`
 	ClientID         *int64        `json:"client_id"`
 	ClientName       string        `json:"client_name"`
+	InProgress       bool          `json:"in_progress"` // true = 请求进行中（尚未产生终态）
+}
+
+// LogFinish 请求完成时更新到日志行的终态字段。
+type LogFinish struct {
+	ProviderID       *int64
+	ProviderName     string
+	StatusCode       int
+	Success          bool
+	Error            string
+	LatencyMS        int64
+	PromptTokens     int64
+	CachedTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
+	Cost             float64
+	Priced           bool
+	Attempts         int
+	AttemptsDetail   []AttemptInfo
 }
 
 // LogInput 写入日志的输入。
@@ -214,6 +233,7 @@ type LogInput struct {
 	ClientIP         string
 	ClientID         *int64
 	ClientName       string
+	InProgress       bool // true = 先落一条进行中日志，稍后由 FinishLog 更新
 }
 
 type UsagePoint struct {
@@ -260,4 +280,6 @@ type LogFilter struct {
 	Model      string
 	Page       int
 	PageSize   int
+	// 仅统计场景使用：排除进行中的日志
+	ExcludeInProgress bool
 }

@@ -12,20 +12,20 @@ import (
 
 // APIClient 调用方（钱包账户）：持有独立 API Key，受钱包余额与周期限额约束。
 type APIClient struct {
-	ID            int64      `json:"id"`
-	LLMAPIID      int64      `json:"llm_api_id"`
-	Name          string     `json:"name"`
-	APIKey        string     `json:"api_key"`
-	Description   string     `json:"description"`
-	WalletBalance float64    `json:"wallet_balance"`
-	WalletEnabled bool       `json:"wallet_enabled"`
-	LimitDaily    *float64   `json:"limit_daily"`
-	LimitWeekly   *float64   `json:"limit_weekly"`
-	LimitMonthly  *float64   `json:"limit_monthly"`
-	TotalSpent    float64    `json:"total_spent"`
-	Enabled       bool       `json:"enabled"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID            int64     `json:"id"`
+	LLMAPIID      int64     `json:"llm_api_id"`
+	Name          string    `json:"name"`
+	APIKey        string    `json:"api_key"`
+	Description   string    `json:"description"`
+	WalletBalance float64   `json:"wallet_balance"`
+	WalletEnabled bool      `json:"wallet_enabled"`
+	LimitDaily    *float64  `json:"limit_daily"`
+	LimitWeekly   *float64  `json:"limit_weekly"`
+	LimitMonthly  *float64  `json:"limit_monthly"`
+	TotalSpent    float64   `json:"total_spent"`
+	Enabled       bool      `json:"enabled"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 
 	// 当前周期用量（列表接口填充）
 	SpentDay   float64 `json:"spent_day"`

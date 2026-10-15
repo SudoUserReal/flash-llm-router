@@ -124,6 +124,10 @@ ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS client_id BIGINT;
 ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS client_name TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_logs_client_created ON request_logs (client_id, created_at DESC);
 
+-- 请求进行中标记：请求进入时先落一条 in_progress=true 的日志，完成后更新为终态
+ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS in_progress BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS idx_logs_in_progress ON request_logs (in_progress) WHERE in_progress;
+
 -- ---------------------------------------------------------------- 系统设置
 CREATE TABLE IF NOT EXISTS settings (
     key        TEXT PRIMARY KEY,
