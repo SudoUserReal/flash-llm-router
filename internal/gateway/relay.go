@@ -130,7 +130,8 @@ func trackProgress(payload []byte, endpoint string, prog *streamProgress) {
 		var ev struct {
 			Type string `json:"type"`
 		}
-		if json.Unmarshal(payload, &ev) == nil && ev.Type == "response.completed" {
+		if json.Unmarshal(payload, &ev) == nil && isResponsesTerminalEvent(ev.Type) {
+			// completed / incomplete（截断）/ failed 都表示流已正常收尾
 			prog.sawCompleted = true
 		}
 		return

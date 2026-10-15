@@ -104,6 +104,8 @@ func ParseUsageFromJSON(body []byte, endpoint string) *Usage {
 }
 
 // parseUsageFromPayload 从单个 SSE data payload 中提取 usage（覆盖 out）。
+// Responses API 的 usage 出现在结束事件中：response.completed / response.incomplete / response.failed
+// （DeepSeek 官方文档：流以这三者之一结束，没有 [DONE]；三者都携带完整 response 对象）。
 func parseUsageFromPayload(payload []byte, endpoint string, out **Usage) {
 	if endpoint == EndpointResponses {
 		var ev struct {
@@ -115,7 +117,7 @@ func parseUsageFromPayload(payload []byte, endpoint string, out **Usage) {
 		if err := json.Unmarshal(payload, &ev); err != nil {
 			return
 		}
-		if ev.Type == "response.completed" && ev.Response != nil && ev.Response.Usage != nil {
+		if isResponsesTerminalEvent(ev.Type) && ev.Response != nil && ev.Response.Usage != nil {
 			*out = ev.Response.Usage.toUsage()
 		}
 		return
@@ -129,6 +131,15 @@ func parseUsageFromPayload(payload []byte, endpoint string, out **Usage) {
 	if chunk.Usage != nil {
 		*out = chunk.Usage.toUsage()
 	}
+}
+
+// isResponsesTerminalEvent 判断是否为 Responses 流的结束事件。
+func isResponsesTerminalEvent(t string) bool {
+	switch t {
+	case "response.completed", "response.incomplete", "response.failed":
+		return true
+	}
+	return false
 }
 
 // ComputeCost 计算费用（price 单位：CNY / 1M tokens），四舍五入到 1e-6。
