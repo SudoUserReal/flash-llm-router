@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -315,5 +316,47 @@ func TestProjectImagesToURL(t *testing.T) {
 	linked := []byte(`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":"https://example.com/a.png"}]}]}`)
 	if sz, n5 := projectImagesToURL(linked, EndpointChat, cfg); sz != len(linked) || n5 != 0 {
 		t.Fatalf("外链图片不应计入: sz=%d n=%d", sz, n5)
+	}
+}
+
+// exists：远端已有且大小一致 → 复用；404 或大小不符 → 视为不存在。
+func TestOSSUploaderExists(t *testing.T) {
+	const payload = "IMAGE-BYTES-123"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			http.Error(w, "expect HEAD", http.StatusMethodNotAllowed)
+			return
+		}
+		if !strings.Contains(r.Header.Get("Authorization"), "OSS ") {
+			http.Error(w, "missing auth", http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/hit.png"):
+			w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+			w.WriteHeader(http.StatusOK)
+		case strings.HasSuffix(r.URL.Path, "/size-mismatch.png"):
+			w.Header().Set("Content-Length", "999")
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	up := newOSSUploader(store.OSSSettings{
+		Endpoint: "oss-cn-beijing.aliyuncs.com", Bucket: "b",
+		AccessKeyID: "ak-demo", AccessKeySecret: "sk-demo",
+	})
+	up.baseURL = srv.URL
+
+	if ok, err := up.exists(context.Background(), "hit.png", int64(len(payload))); err != nil || !ok {
+		t.Fatalf("已存在且大小一致应返回 true: ok=%v err=%v", ok, err)
+	}
+	if ok, err := up.exists(context.Background(), "miss.png", 10); err != nil || ok {
+		t.Fatalf("404 应返回 false: ok=%v err=%v", ok, err)
+	}
+	if ok, _ := up.exists(context.Background(), "size-mismatch.png", 10); ok {
+		t.Fatal("大小不符应视为不存在（触发重传）")
 	}
 }

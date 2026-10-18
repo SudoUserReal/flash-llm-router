@@ -63,7 +63,7 @@
   - 流式计费注入 `stream_options.include_usage`，并过滤由此产生的纯 usage 事件；
   - 优先级的数字越小越优先，成功一次清除连续失败计数。
 - 调用方（钱包）语义：`api_clients` 持 Key，余额 ≤ 0 或超日/周/月限额时拒绝请求；成功后按实际费用条件扣费；LLM API 主 Key 不受限。改鉴权逻辑时注意保留主 Key 回退路径。
-- 图片转 URL：Provider 开关 `image_to_url`（默认关）；开启后请求中 `data:image` base64 上传阿里云 OSS 换公开链接（`internal/gateway/imageurl.go`）。OSS 配置存 settings 表（全局），网关侧有 15s TTL 缓存 + `InvalidateOSSCache()`；对象名 = `<prefix>/<sha256前40>.<ext>`（内容寻址去重；prefix 由 `oss_prefix` 设置，默认 flr-images，RAM 仅授权特定前缀时必须一致）；任何失败都降级保留 base64，不得让请求失败。请求体上限判定：开启该开关的 Provider 按「替换后预估大小」判断（`projectImagesToURL`，等长占位 URL、纯本地估算不上传；预估与实际替换字节一致）；超限跳过时不产生任何上传。另：usage 解析需兼容 `{"data": {...}}` 包装格式（unwrapEnvelope），否则漏计费。测试用 127.0.0.1 mock OSS（路径风格），严禁写入真实 OSS 凭据/地址。
+- 图片转 URL：Provider 开关 `image_to_url`（默认关）；开启后请求中 `data:image` base64 上传阿里云 OSS 换公开链接（`internal/gateway/imageurl.go`）。OSS 配置存 settings 表（全局），网关侧有 15s TTL 缓存 + `InvalidateOSSCache()`；对象名 = `<prefix>/<sha256前40>.<ext>`（内容寻址去重；prefix 由 `oss_prefix` 设置，默认 flr-images，RAM 仅授权特定前缀时必须一致）；上传前先查进程内缓存，未命中时做远端 HEAD 存在性校验（大小一致才复用）——因此服务重启后不会重复上传同一图片。任何失败都降级保留 base64，不得让请求失败。请求体上限判定：开启该开关的 Provider 按「替换后预估大小」判断（`projectImagesToURL`，等长占位 URL、纯本地估算不上传；预估与实际替换字节一致）；超限跳过时不产生任何上传。另：usage 解析需兼容 `{"data": {...}}` 包装格式（unwrapEnvelope），否则漏计费。测试用 127.0.0.1 mock OSS（路径风格），严禁写入真实 OSS 凭据/地址。
 - 请求日志语义：请求进入时先落一条 `in_progress=true` 的"请求中"日志（`BeginLog`），结束后由 `FinishLog` 更新为终态；统计口径排除进行中的日志（`buildRangeWhere` 固定 `in_progress = false`）；进程异常退出残留的进行中日志由 janitor 标记为 499 中断。
 - 修改前端后必须：`cd web && npm run build`，然后重新 `go build`（`go:embed` 需要新产物）。
 

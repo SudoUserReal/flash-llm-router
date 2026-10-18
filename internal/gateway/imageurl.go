@@ -119,6 +119,33 @@ func (u *ossUploader) upload(ctx context.Context, key, contentType string, data 
 	return nil
 }
 
+// exists 检查对象是否已存在且大小一致（HEAD，带签名以兼容私有桶）。
+// 用于重启后避免重复上传：缓存丢失时先确认远端是否已有同一对象。
+func (u *ossUploader) exists(ctx context.Context, key string, size int64) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, u.baseURL+"/"+key, nil)
+	if err != nil {
+		return false, err
+	}
+	date := time.Now().UTC().Format(http.TimeFormat)
+	req.Header.Set("Date", date)
+	req.Header.Set("Authorization", "OSS "+u.akID+":"+u.sign(http.MethodHead, "", date, key))
+
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// 大小一致才认为可复用（避免同名但内容不同的极端情况）
+		return resp.ContentLength == size, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("HEAD 返回 %d", resp.StatusCode)
+	}
+}
+
 // ---------------------------------------------------------------- data URL
 
 // parseDataURL 解析 data:image/...;base64,<data>，返回对象 key、content-type 与原始字节。
@@ -468,12 +495,16 @@ func (g *Gateway) oss() *ossState {
 	return g.ossCached
 }
 
-// InvalidateOSSCache 设置变更后调用，让下一次请求重新读取 OSS 配置。
+// InvalidateOSSCache 设置变更后调用：重新读取 OSS 配置，并清空已上传缓存
+// （配置可能更换了 bucket/前缀，旧缓存不再可靠）。
 func (g *Gateway) InvalidateOSSCache() {
 	o := g.oss()
 	o.mu.Lock()
 	o.cfgAt = time.Time{}
 	o.mu.Unlock()
+	o.uploadedMu.Lock()
+	o.uploaded = map[string]string{}
+	o.uploadedMu.Unlock()
 }
 
 // ossConfig 读取 OSS 配置（带短 TTL 缓存）。
@@ -548,6 +579,18 @@ func (g *Gateway) rewriteImagesForProvider(ctx context.Context, body []byte, end
 		}
 		uctx, cancel := context.WithTimeout(ctx, ossUploadTimeout)
 		defer cancel()
+
+		// 缓存未命中（如服务重启）先查远端：内容寻址下对象名即内容哈希，
+		// 已存在且大小一致时直接复用，避免重复上传。
+		if ok, err := up.exists(uctx, key, int64(len(data))); err != nil {
+			g.Log.Debug("OSS 存在性检查失败，继续上传", "err", err, "key", key)
+		} else if ok {
+			url := up.publicURL(key)
+			g.memoUploadedSet(key, url)
+			g.Log.Debug("图片已存在于 OSS，跳过上传", "key", key)
+			return url, true
+		}
+
 		if err := up.upload(uctx, key, contentType, data); err != nil {
 			g.Log.Warn("上传 OSS 失败，保留 base64", "err", err, "key", key)
 			return "", false

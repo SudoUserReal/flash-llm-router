@@ -303,3 +303,96 @@ func TestMaxBodyMBProjectedSkipAvoidsUpload(t *testing.T) {
 		t.Fatalf("超限跳过时不应发生上传（白上传），got %d 次", uploads)
 	}
 }
+
+// 模拟真实 OSS：带对象存储语义（PUT 写入、HEAD 查询存在性）。
+type fakeOSS struct {
+	mu      sync.Mutex
+	objects map[string][]byte
+	heads   int
+	puts    int
+	srv     *httptest.Server
+}
+
+func newFakeOSS(t *testing.T) *fakeOSS {
+	t.Helper()
+	f := &fakeOSS{objects: map[string][]byte{}}
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		key := strings.TrimPrefix(r.URL.Path, "/img-b/")
+		switch r.Method {
+		case http.MethodHead:
+			f.heads++
+			if body, ok := f.objects[key]; ok {
+				w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+			}
+		case http.MethodPut:
+			f.puts++
+			b, _ := io.ReadAll(r.Body)
+			f.objects[key] = b
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.Error(w, "method", http.StatusMethodNotAllowed)
+		}
+	}))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakeOSS) stats() (heads, puts int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.heads, f.puts
+}
+
+// 重启后（内存缓存丢失）不应重复上传：靠远端存在性校验复用既有对象。
+func TestImageUploadSkippedAfterRestart(t *testing.T) {
+	e := newEnv(t)
+	oss := newFakeOSS(t)
+	if err := e.st.SetOSSSettings(t.Context(), store.OSSSettings{
+		Endpoint: oss.srv.URL, Bucket: "img-b", AccessKeyID: "ak-demo", AccessKeySecret: "sk-demo", Prefix: "i",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	upstream, _ := chatUpstream(t, 10, 5)
+	apiID, key := e.createLLMAPI("重启去重", []string{"m"})
+	e.createProvider(apiID, map[string]any{
+		"name": "img-restart", "base_url": upstream.URL, "image_to_url": true,
+	})
+
+	body := fmt.Sprintf(`{"model":"m","messages":[{"role":"user","content":[{"type":"image_url","image_url":"data:image/png;base64,%s"}]}]}`, bigPNGBase64(t, 64))
+
+	// 第一次：缓存为空 → HEAD(404) → 上传
+	resp := e.req(http.MethodPost, "/v1/chat/completions", body, key)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("first call status %d", resp.StatusCode)
+	}
+	heads1, puts1 := oss.stats()
+	if puts1 != 1 {
+		t.Fatalf("首次应上传 1 次，got %d", puts1)
+	}
+	t.Logf("首次请求: HEAD=%d PUT=%d", heads1, puts1)
+
+	// 模拟网关重启：清空进程内缓存
+	e.srv.GW.InvalidateOSSCache()
+
+	// 第二次：缓存丢失 → HEAD(200 命中) → 不上传
+	resp = e.req(http.MethodPost, "/v1/chat/completions", body, key)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("second call status %d", resp.StatusCode)
+	}
+	heads2, puts2 := oss.stats()
+	if puts2 != puts1 {
+		t.Fatalf("重启后不应重复上传: PUT 从 %d 变为 %d", puts1, puts2)
+	}
+	if heads2 <= heads1 {
+		t.Fatalf("重启后应通过 HEAD 校验复用对象: HEAD 从 %d 变为 %d", heads1, heads2)
+	}
+	t.Logf("重启后请求: HEAD=%d PUT=%d（未重复上传 ✓）", heads2, puts2)
+}
